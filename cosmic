@@ -1,0 +1,54 @@
+#! /usr/bin/perl
+
+use 5.008;
+use strict;
+use warnings;
+use Pod::Usage;
+
+our $VERSION = '0.01';
+
+pod2usage(1)
+    unless @ARGV;
+pog2usage(0)
+    if $ARGV[0] eq '--help';
+print "$VERSION\n"
+    if @ARGV[0] eq '--version';
+
+my $cmd = shift @ARGV;
+if ($cmd =~ /^(?:connect|disconnect)$/) {
+    App::Cosmic->$cmd;
+} elsif ($cmd eq 'change-client') {
+    App::Cosmic::Server->change_client;
+} else {
+    die "unknown command: $cmd";
+}
+
+__END__
+
+=head1 NAME
+
+cosmic - a fail-safe network RAID
+
+=head1 SYNOPSIS
+
+  # connect to and mount volume
+  cosmic connect device-info /dev/md0
+  mount /dev/md0 /var/md0
+  
+  # unmount and disconnect volume
+  umount /var/md0
+  cosmic disconnect device-info /dev/md0
+
+=head1 DESCRIPTION
+
+Cosmic is a fail-safe network RAID, built around NBD (Linux Network Block Device).
+
+=head1 AUTHOR
+
+Copyright (C) 2010 Cybozu Labs, Inc., written by Kazuho Oku
+
+=head1 LICENSE
+
+BSD License
+
+=cut

@@ -1,0 +1,22 @@
+NAME
+    cosmic - a fail-safe network RAID
+
+SYNOPSIS
+      # connect to and mount volume
+      cosmic connect device-info /dev/md0
+      mount /dev/md0 /var/md0
+  
+      # unmount and disconnect volume
+      umount /var/md0
+      cosmic disconnect device-info /dev/md0
+
+DESCRIPTION
+    Cosmic is a fail-safe network RAID, built around NBD (Linux Network
+    Block Device).
+
+AUTHOR
+    Copyright (C) 2010 Cybozu Labs, Inc., written by Kazuho Oku
+
+LICENSE
+    BSD License
+
