@@ -68,7 +68,7 @@ sub _change_client {
             $nodes{$node}->{in},
             'ssh',
             "root\@$node",
-            qw(exec cosmic change-client),
+            qw(exec cosmic srv-change-client),
             $self->def->{global_name},
             (defined $new_addr ? ($new_addr) : ()),
             '2>&1',
