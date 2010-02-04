@@ -10,7 +10,12 @@ use JSON qw(from_json);
 use App::Cosmic;
 use base qw(App::Cosmic);
 
+use constant DEV_LOCK_FILE => CLIENT_CONF_DIR . '/dev.lock';
+
 __PACKAGE__->mk_accessors(qw(def def_file device_file));
+
+# FIXME support mounting multiple volumes from single host:port, this is
+# a limitation in ndb protocol
 
 sub new {
     my $klass = shift;
@@ -20,9 +25,9 @@ sub new {
     die "invalid args, see --help"
         unless @ARGV == 2;
     $self->def_file(shift @ARGV);
+    $self->def_file(CLIENT_CONF_DIR . '/' . $self->def_file)
+        unless $self->def_file =~ m|/|;
     $self->device_file(shift @ARGV);
-    $self->device_file(CLIENT_CONF_DIR . '/' . $self->device_file)
-        unless $self->device_file =~ m|/|;
     $self->def(from_json(do {
         open my $fh, '<', $self->def_file
             or die "failed to open definition file:@{[$self->def_file]}:$!";
@@ -55,6 +60,7 @@ sub _connect {
 
 sub _change_client {
     my ($self, $new_addr) = @_;
+    $new_addr ||= '';
     
     # update all nodes to new_addr using 2pc
     my %nodes = map {
@@ -63,22 +69,24 @@ sub _change_client {
     
     # spawn and check
     for my $node (sort keys %nodes) {
-        $nodes{$node}->{pid} = open3(
-            $nodes{$node}->{out},
+        $nodes{$node}->{pid} = open2(
             $nodes{$node}->{in},
-            'ssh',
-            "root\@$node",
-            qw(exec cosmic srv-change-client),
-            $self->def->{global_name},
-            (defined $new_addr ? ($new_addr) : ()),
-            '2>&1',
+            $nodes{$node}->{out},
+            join(
+                ' ',
+                "ssh root\@$node exec cosmic srv-change-client",
+                $self->def->{global_name},
+                (defined $new_addr ? ($new_addr) : ()),
+                '2>&1',
+            ),
         ) or die "open3 failed:$!";
         my $line = $nodes{$node}->{in}->getline;
         unless ($line =~ /^cosmic-change-client-is-ready/) {
             die join(
                 '',
                 "$node rejected update:\n",
-                $line, $nodes{$node}->{in}->getlines,
+                $line,
+                $nodes{$node}->{in}->getlines,
             );
         }
     }
@@ -91,10 +99,10 @@ sub _change_client {
     
     # check response
     for my $node (sort keys %nodes) {
-        my $lines = $nodes{$node}->{in}->getlines;
+        my $lines = join '', $nodes{$node}->{in}->getlines;
         die "unexpected response from node:$node:\n$lines"
             if length $lines != 0;
-        while (waitpid($nodes{$node}->{pid}, 0) >= 0) {}
+        while (waitpid($nodes{$node}->{pid}, 0) == -1) {}
         die "child process exitted with $? while takling to node:$node"
             if $? != 0;
     }
@@ -116,9 +124,28 @@ sub _setup_raid {
 
 sub _device_file_of {
     my ($self, $node) = @_;
-    # FIXME support mounting multiple volumes from single host:port, this is
-    # a limitation in ndb protocol
     return "/dev/cosmic-$node";
+}
+
+sub _find_empty_device_file {
+    my $self = shift;
+    my $lock = lock_file(DEV_LOCK_FILE);
+    
+    for my $size_file (glob '/sys/block/nbd*/size') {
+        my $size = do {
+            open my $fh, '<', $size_file
+                or die "failed to open file:$size_file:$!";
+            <$fh>;
+        };
+        chomp $size;
+        if ($size == 0) {
+            $size_file =~ m|^/sys/block/(nbd[0-9]+)/size$|
+                or die "unexpected filename:$size_file";
+            return "/dev/$1";
+        }
+    }
+    
+    return;
 }
 
 sub _system {
@@ -126,5 +153,6 @@ sub _system {
     print join(' ', @cmd), "\n";
     system(@cmd);
 }
+
 
 1;

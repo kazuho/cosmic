@@ -19,7 +19,7 @@ print "$VERSION\n"
 
 my $cmd = shift @ARGV;
 if ($cmd =~ /^(?:connect|disconnect)$/) {
-    App::Cosmic->$cmd;
+    App::Cosmic::Client->$cmd;
 } elsif ($cmd =~ /^srv-(start|change-client)$/) {
     my $f = $1;
     $f =~ s/-/_/g;
