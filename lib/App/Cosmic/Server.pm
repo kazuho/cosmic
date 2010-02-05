@@ -136,6 +136,7 @@ sub _change_client {
     }
     write_file($self->_ipof_file_of($global_name), '');
     print "ok phase 2\n";
+    STDOUT->flush;
     
     # commit (write new ipof file)
     $input = <STDIN>;
