@@ -121,37 +121,28 @@ sub _change_client {
     die "device $global_name does not exist:$!"
         unless -e $self->device_prefix . $global_name;
     
-    # prepare new file
-    my $tmpfn = SERVER_CONF_DIR . "ipof.tmp";
-    {
-        open my $fh, '>', $tmpfn
-            or die "failed to create file:$tmpfn:$!";
-        print $fh $new_addr;
-        $fh->sync
-            or die "failed to fsync file:$tmpfn:$!";
-    }
+    # ready, wait for client
+    print "ok phase 1\n";
+    STDOUT->flush;
     
     # kill current
     $self->_kill_server($global_name);
     
-    # ready, wait for client
-    print "cosmic-change-client-is-ready\n";
-    STDOUT->flush;
-    
+    # prepare (reset ipof file)
     my $input = <STDIN>;
+    unless ($input =~ /^prepare\n$/) {
+        warn "client did not request prepare, aborting...\n";
+        return;
+    }
+    write_file($self->_ipof_file_of($global_name), '');
+    
+    # commit (write new ipof file)
+    $input = <STDIN>;
     unless ($input =~ /^commit\n$/) {
-        unlink $tmpfn;
         warn "client did not request commit, aborting...\n";
         return;
     }
-    
-    # rename
-    my $newfn = $self->_ipof_file_of($global_name);
-    rename $tmpfn, $newfn
-        or die "failed to rename(2) $tmpfn to $newfn:$!";
-    
-    # sync dir
-    sync_dir(SERVER_CONF_DIR);
+    write_file($self->_ipof_file_of($global_name), $new_addr);
 }
 
 sub _kill_server {
@@ -166,13 +157,7 @@ sub _kill_server {
             1,
         )) {
             # server's running
-            my $pid = do {
-                open my $fh, '<', $pid_file
-                    or die "failed to open file:$pid_file:$!";
-                <$fh>;
-            };
-            chomp $pid;
-            kill 'KILL', $pid;
+            kill 'KILL', read_oneline($pid_file);
             lock_file("$pid_file.lock");
         }
         unlink $pid_file;
@@ -184,11 +169,7 @@ sub _peerhost_to_global_name {
     my $global_name;
     
     for my $fn (glob "@{[SERVER_CONF_DIR]}/*.ipof") {
-        my $allowed = do {
-            open my $fh, '<', $fn
-                or die "failed to open file:$fn:$!";
-            <$fh>;
-        };
+        my $allowed = read_oneline($fn);
         warn "allowed:$allowed, peer:$peerhost";
         if ($allowed eq $peerhost) {
             die "$peerhost seems allowed to more than one devices"
