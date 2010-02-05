@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Errno ();
+use Getopt::Long;
 use IO::Handle;
 use IPC::Open2;
 use JSON qw(from_json to_json);
@@ -11,6 +12,7 @@ use JSON qw(from_json to_json);
 use App::Cosmic;
 use base qw(App::Cosmic);
 
+use constant DISK_DIR => CLIENT_CONF_DIR . '/disks';
 use constant DEV_LOCK_FILE => CLIENT_CONF_DIR . '/dev.lock';
 use constant DEV_MAP_FILE  => CLIENT_CONF_DIR . '/dev.map';
 
@@ -29,7 +31,7 @@ sub new {
     $self->def_file(shift @ARGV);
     $self->device_file(shift @ARGV);
     $self->def(from_json(do {
-        open my $fh, '<', "@{[CLIENT_CONF_DIR]}/@{[$self->def_file]}"
+        open my $fh, '<', "@{[DISK_DIR]}/@{[$self->def_file]}"
             or die "no definition for:@{[$self->def_file]}:$!";
         join '', <$fh>;
     }));
@@ -42,20 +44,26 @@ sub new {
 }
 
 sub connect {
-    __PACKAGE__->new->_connect;
+    my $opt_create;
+    GetOptions(
+        create => \$opt_create,
+    ) or exit(1);
+    __PACKAGE__->new->_connect(
+        create => $opt_create,
+    );
 }
 
 sub _connect {
-    my $self = shift;
+    my ($self, %opts) = @_;
     
     print "registering my IP address to disk servers...\n";
     $self->_change_client();
     
     print "mounting disks...\n";
-    $self->_mount;
+    my $node_devs = $self->_mount;
     
-    print "setting up RAID array...\n";
-    $self->_setup_raid;
+    print "starting RAID array...\n";
+    $self->_start_raid(\%opts, $node_devs);
 }
 
 sub disconnect {
@@ -63,7 +71,13 @@ sub disconnect {
 }
 
 sub _disconnect {
-    # TODO
+    my $self = shift;
+    
+    print "stopping RAID array...\n";
+    $self->_stop_raid;
+    
+    print "unmounting disk...\n";
+    $self->_unmount;
 }
 
 sub _change_client {
@@ -136,6 +150,8 @@ sub _mount {
     my $self = shift;
     my $lock = lock_file(DEV_LOCK_FILE);
     
+    my %r;
+    
     # mount disk
     for my $node (sort @{$self->def->{nodes}}) {
         my $dev = sub {
@@ -148,10 +164,15 @@ sub _mount {
             }
             die "failed to find an unconnected device file";
         }->();
+        print "  connecting $node to $dev\n";
         _system('nbd-client', $node, NBD_PORT, $dev) == 0
             or die "failed to connect nbd node to:$dev:$?";
         $self->_update_device_map($node, $dev);
+        $r{$node} = $dev;
     }
+    die "no nodes" unless %r;
+    
+    \%r;
 }
 
 sub _unmount {
@@ -164,12 +185,13 @@ sub _unmount {
     # unmount disk
     for my $node (sort @{$self->def->{nodes}}) {
         if (my $dev = $dev_map->{$node}) {
-            _system('nbd-client', '-d', $node) == 0
+            _system('nbd-client', '-d', $dev) == 0
                 or die "failed to disconnect nbd node:$?";
         }
     }
     
     # update device map
+    sleep 1;
     $self->_update_device_map;
 }
 
@@ -207,7 +229,38 @@ sub _update_device_map {
     $dev_map;
 }
 
-sub _setup_raid {
+sub _start_raid {
+    my ($self, $opts, $node_devs) = @_;
+    # build command
+    my @cmd = qw(mdadm);
+    if ($opts->{create}) {
+        push(
+            @cmd,
+            '--create',
+            $self->device_file,
+            '--level=1',
+            '--raid-devices=' . scalar(keys %$node_devs),
+        );
+    } else {
+        push(
+            @cmd,
+            '--assemble',
+            $self->device_file,
+        );
+    }
+    for my $node (sort keys %$node_devs) {
+        push @cmd, $node_devs->{$node};
+    }
+    _system(@cmd) == 0
+        or die "mdadm failed with exit code:$?";
+}
+
+sub _stop_raid {
+    my $self = shift;
+    _system(
+        qw(mdadm --stop), $self->device_file,
+    ) == 0
+        or die "mdadm failed with exit code:$?";
 }
 
 sub _system {
@@ -215,6 +268,5 @@ sub _system {
     print join(' ', @cmd), "\n";
     system(@cmd);
 }
-
 
 1;
