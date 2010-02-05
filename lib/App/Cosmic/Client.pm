@@ -231,6 +231,7 @@ sub _update_device_map {
 
 sub _start_raid {
     my ($self, $opts, $node_devs) = @_;
+    
     # build command
     my @cmd = qw(mdadm);
     if ($opts->{create}) {
@@ -252,8 +253,53 @@ sub _start_raid {
     for my $node (sort keys %$node_devs) {
         push @cmd, $node_devs->{$node};
     }
-    _system(@cmd) == 0
-        or die "mdadm failed with exit code:$?";
+    
+    # execute command and read its output
+    print join(' ', @cmd), "\n";
+    open my $fh, '-|', join(' ', @cmd) . ' 2>&1',
+        or die "failed to invoke mdadm:$!";
+    my $last_line = '';
+    while (my $line = <$fh>) {
+        print $line;
+        $last_line = $line;
+    }
+    close $fh;
+    die "mdadm failed with exit code:$?"
+        unless $? == 0;
+    
+    # try --re-add if assembly is in degraded mode
+    if (! $opts->{create}) {
+        if ($last_line =~ /has been started with (\d+) drives? \(out of (\d+)\)\.\s*$/
+                && $1 != $2) {
+            # read output of mdadm --detail device
+            my @lines = do {
+                open my $fh, '-|', "mdadm --detail @{[$self->device_file]}"
+                    or die "failed to invoke mdadm";
+                <$fh>;
+            };
+            die "mdadm --detail failed with exit code:$?"
+                unless $? == 0;
+            # build list of devices to re-add
+            splice @lines, 0, @lines - scalar(keys %$node_devs);
+            my %readd = map { $_ => 1 } values %$node_devs;
+            for my $line (@lines) {
+                if ($line =~ m{\s+active\s+sync\s+(/dev/nbd\d+)\s*$}) {
+                    delete $readd{$1};
+                }
+            }
+            # check, just to make sure
+            die "failed to build list of inactive nodes"
+                if scalar(keys %readd) == scalar(keys %$node_devs);
+            # readd
+            _system(
+                qw(mdadm --manage),
+                $self->device_file,
+                '--re-add',
+                sort keys %readd,
+            ) == 0
+                or warn "mdadm --re-add failed with exit code:$?";
+        }
+    }
 }
 
 sub _stop_raid {
