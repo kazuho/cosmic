@@ -239,6 +239,7 @@ sub _start_raid {
             '--create',
             $self->device_file,
             '--level=1',
+            '--bitmap=internal',
             '--raid-devices=' . scalar(keys %$node_devs),
         );
     } else {

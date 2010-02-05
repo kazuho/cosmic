@@ -36,7 +36,12 @@ cosmic - a fail-safe network RAID
 
 =head1 SYNOPSIS
 
-  # connect to and mount volume
+  # connect to and create a new fs
+  cosmic connect --create device-info /dev/md0
+  fdisk -t ext3 /dev/md0
+  mount /dev/md0 /var/md0
+  
+  # connect to and mount an existing volume
   cosmic connect device-info /dev/md0
   mount /dev/md0 /var/md0
   
