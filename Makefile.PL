@@ -8,6 +8,7 @@ readme_from 'cosmic';
 requires 'JSON';
 
 install_script 'cosmic';
+install_script 'cosmic-server';
 
 auto_include;
 auto_install;
