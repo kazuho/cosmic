@@ -19,7 +19,7 @@ use constant GLOBAL_LOCK_FILE => SERVER_CONF_DIR . '/cosmic.lock';
 use constant DUMMY_USERNAME   => 'dummyuser';
 use constant DISABLE_PASSWORD => 'neverconnect00';
 
-__PACKAGE__->mk_accessors(qw(device_prefix iqn_prefix));
+__PACKAGE__->mk_accessors(qw(device_prefix iqn_host));
 
 sub new {
     my $klass = shift;
@@ -32,7 +32,7 @@ sub new {
             or die "failed to open file:$fn:$!";
         join '', <$fh>;
     });
-    for my $n (qw(device_prefix iqn_prefix)) {
+    for my $n (qw(device_prefix iqn_host)) {
         die "`$n' not defined in cosmic.conf"
             unless $json->{$n};
         $self->{$n} = $json->{$n};

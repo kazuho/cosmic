@@ -41,7 +41,7 @@ sub _register_device {
     systeml(
         qw(ietadm --op new),
         "--tid=$tid",
-        "--params=Name=" . $self->iqn_prefix . $global_name,
+        "--params=Name=" . to_iqn($self->iqn_host, $global_name),
     ) == 0
         or die "failed to create an iSCSI node using ietadm:$!";
     
@@ -128,7 +128,7 @@ sub _read_iet_session {
 sub _sessions_of {
     my ($self, $global_name) = @_;
     my @tids = grep {
-        $_->{name} eq $self->iqn_prefix . $global_name
+        $_->{name} eq to_iqn($self->iqn_host, $global_name)
     } $self->_read_iet_session;
     die "no target found for name:$global_name"
         unless @tids;

@@ -12,7 +12,7 @@ use POSIX qw(:fcntl_h);
 
 our @EXPORT = (
     qw(CLIENT_CONF_DIR SERVER_CONF_DIR NBD_PORT mk_accessors read_oneline),
-    qw(write_file sync_dir lock_file systeml),
+    qw(write_file sync_dir lock_file systeml to_iqn),
 );
 
 use constant CLIENT_CONF_DIR => '/etc/cosmic/client';
@@ -88,6 +88,11 @@ sub systeml {
     my @cmd = @_;
     print join(' ', @cmd), "\n";
     system(@cmd);
+}
+
+sub to_iqn {
+    my ($host, $ident) = @_;
+    "iqn.2010-02.arpa.in-addr.$host:$ident";
 }
 
 1;
