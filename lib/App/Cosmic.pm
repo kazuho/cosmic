@@ -12,7 +12,7 @@ use POSIX qw(:fcntl_h);
 
 our @EXPORT = (
     qw(CLIENT_CONF_DIR SERVER_CONF_DIR NBD_PORT mk_accessors read_oneline),
-    qw(write_file sync_dir lock_file),
+    qw(write_file sync_dir lock_file systeml),
 );
 
 use constant CLIENT_CONF_DIR => '/etc/cosmic/client';
@@ -36,6 +36,8 @@ sub read_oneline {
     open my $fh, '<', $fn
         or die "failed to open file:$fn:$!";
     my $line = <$fh>;
+    $line = ''
+        unless defined $line;
     chomp $line;
     close $fh;
     $line;
@@ -80,6 +82,12 @@ sub lock_file {
         return;
     }
     die "flock(LOCK_EX) failed on file:$fn:$!";
+}
+
+sub systeml {
+    my @cmd = @_;
+    print join(' ', @cmd), "\n";
+    system(@cmd);
 }
 
 1;

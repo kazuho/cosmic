@@ -6,7 +6,6 @@ use warnings;
 use Pod::Usage;
 
 use App::Cosmic::Client;
-use App::Cosmic::Server;
 
 our $VERSION = '0.01';
 
@@ -20,10 +19,6 @@ print "$VERSION\n"
 my $cmd = shift @ARGV;
 if ($cmd =~ /^(?:connect|disconnect)$/) {
     App::Cosmic::Client->$cmd;
-} elsif ($cmd =~ /^srv-(start|change-client)$/) {
-    my $f = $1;
-    $f =~ s/-/_/g;
-    App::Cosmic::Server->$f;
 } else {
     die "unknown command: $cmd";
 }
@@ -51,7 +46,7 @@ cosmic - a fail-safe network RAID
 
 =head1 DESCRIPTION
 
-Cosmic is a fail-safe network RAID, built around NBD (Linux Network Block Device).
+Cosmic is a fail-safe network RAID, built around iSCSI.
 
 =head1 AUTHOR
 

@@ -1,0 +1,37 @@
+#! /usr/bin/perl
+
+use 5.008;
+use strict;
+use warnings;
+use Pod::Usage;
+
+use App::Cosmic::Server::IET;
+
+our $VERSION = '0.01';
+
+pod2usage(1)
+    unless @ARGV;
+pog2usage(0)
+    if $ARGV[0] eq '--help';
+print "$VERSION\n"
+    if $ARGV[0] eq '--version';
+
+my $cmd = shift @ARGV;
+if ($cmd =~ /^(?:start|stop|change-credentials|disconnect)$/) {
+    $cmd =~ s/-/_/g;
+    App::Cosmic::Server::IET->$cmd;
+} else {
+    die "unknown command: $cmd";
+}
+
+__END__
+
+=head1 NAME
+
+cosmic-server - Cosmic server implementation using iSCSI Enterprise Target
+
+=head1 SYNOPSIS
+
+  cosmic-server start
+
+=cut

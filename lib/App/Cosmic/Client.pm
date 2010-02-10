@@ -12,9 +12,10 @@ use JSON qw(from_json to_json);
 use App::Cosmic;
 use base qw(App::Cosmic);
 
-use constant DISK_DIR => CLIENT_CONF_DIR . '/disks';
-use constant DEV_LOCK_FILE => CLIENT_CONF_DIR . '/dev.lock';
-use constant DEV_MAP_FILE  => CLIENT_CONF_DIR . '/dev.map';
+use constant DEV_LOCK_FILE    => CLIENT_CONF_DIR . '/dev.lock';
+use constant DEV_MAP_FILE     => CLIENT_CONF_DIR . '/dev.map';
+use constant DISK_DIR         => CLIENT_CONF_DIR . '/disks';
+use constant ISCSID_CONF_FILE => '/etc/iscsi/iscsid.conf';
 
 __PACKAGE__->mk_accessors(qw(def def_file device_file));
 
@@ -56,7 +57,7 @@ sub connect {
 sub _connect {
     my ($self, %opts) = @_;
     
-    print "registering my IP address to disk servers...\n";
+    print "registering my credentials to block device servers...\n";
     $self->_change_client();
     
     print "mounting disks...\n";
@@ -81,12 +82,19 @@ sub _disconnect {
 }
 
 sub _change_client {
-    my ($self, $new_addr) = @_;
-    $new_addr ||= '';
+    my $self = shift;
+    
+    # read user,pass from iscsi.conf
+    my @userpass = $self->_read_userpass;
     
     # update all nodes to new_addr using 2pc
     my %nodes = map {
-        $_ => {}, # pid: pid, out: output to remote, in: input from remote
+        $_ => {
+            # pid => pid,
+            # out: output to remote,
+            # in: input from remote
+            output => '',
+        },
     } @{$self->def->{nodes}};
     
     # spawn and check
@@ -96,53 +104,42 @@ sub _change_client {
             $nodes{$node}->{out},
             join(
                 ' ',
-                "ssh root\@$node exec cosmic srv-change-client",
+                "ssh root\@$node exec cosmic-server change-credentials",
                 $self->def->{global_name},
-                (defined $new_addr ? ($new_addr) : ()),
+                @userpass,
                 '2>&1',
             ),
         ) or die "open3 failed:$!";
-        my $line = $nodes{$node}->{in}->getline;
-        chomp $line;
-        unless ($line =~ /^ok phase 1$/) {
-            die join(
-                '',
-                "$node rejected update:\n",
-                $line,
-                $nodes{$node}->{in}->getlines,
-            );
+    }
+    
+    # proceed, step by step
+    while (1) {
+        my $done = 0;
+        for my $node (sort keys %nodes) {
+            my $success;
+            while (my $line = $nodes{$node}->{in}->getline) {
+                $nodes{$node}->{output} .= $line;
+                chomp $line;
+                if ($line =~ /^cosmic-done$/) {
+                    $done++;
+                    $success = 1;
+                    last;
+                } elsif ($line =~ /^cosmic-ok /) {
+                    $success = 1;
+                    last;
+                }
+            }
+            die "change-credentials failed on node $node:\n"
+                . $nodes{$node}->{output}
+                    unless $success;
         }
-    }
-    
-    # request reset
-    for my $node (sort keys %nodes) {
-        $nodes{$node}->{out}->print("prepare\n");
-        my $line = $nodes{$node}->{in}->getline;
-        chomp $line;
-        unless ($line =~ /^ok phase 2$/) {
-            die join(
-                '',
-                "$node rejected update:\n",
-                $line,
-                $nodes{$node}->{in}->getlines,
-            );
+        die "huh?"
+            if $done && $done != keys %nodes;
+        last
+            if $done;
+        for my $node (sort keys %nodes) {
+            $nodes{$node}->{out}->print("next\n");
         }
-    }
-    
-    # commit
-    for my $node (sort keys %nodes) {
-        $nodes{$node}->{out}->print("commit\n");
-        $nodes{$node}->{out}->close;
-    }
-    
-    # check response
-    for my $node (sort keys %nodes) {
-        my $lines = join '', $nodes{$node}->{in}->getlines;
-        die "unexpected response from node:$node:\n$lines"
-            if length $lines != 0;
-        while (waitpid($nodes{$node}->{pid}, 0) == -1) {}
-        die "child process exitted with $? while takling to node:$node"
-            if $? != 0;
     }
 }
 
@@ -165,7 +162,7 @@ sub _mount {
             die "failed to find an unconnected device file";
         }->();
         print "  connecting $node to $dev\n";
-        _system('nbd-client', $node, NBD_PORT, $dev) == 0
+        systeml('nbd-client', $node, NBD_PORT, $dev) == 0
             or die "failed to connect nbd node to:$dev:$?";
         $self->_update_device_map($node, $dev);
         $r{$node} = $dev;
@@ -185,7 +182,7 @@ sub _unmount {
     # unmount disk
     for my $node (sort @{$self->def->{nodes}}) {
         if (my $dev = $dev_map->{$node}) {
-            _system('nbd-client', '-d', $dev) == 0
+            systeml('nbd-client', '-d', $dev) == 0
                 or die "failed to disconnect nbd node:$?";
         }
     }
@@ -291,7 +288,7 @@ sub _start_raid {
             die "failed to build list of inactive nodes"
                 if scalar(keys %readd) == scalar(keys %$node_devs);
             # readd
-            _system(
+            systeml(
                 qw(mdadm --manage),
                 $self->device_file,
                 '--re-add',
@@ -304,16 +301,35 @@ sub _start_raid {
 
 sub _stop_raid {
     my $self = shift;
-    _system(
+    systeml(
         qw(mdadm --stop), $self->device_file,
     ) == 0
         or die "mdadm failed with exit code:$?";
 }
 
-sub _system {
-    my @cmd = @_;
-    print join(' ', @cmd), "\n";
-    system(@cmd);
+sub _read_userpass {
+    my $self = shift;
+    my ($user, $pass);
+     
+    open my $fh, '<', ISCSID_CONF_FILE
+        or die "failed to open file:@{[ISCSID_CONF_FILE]}:$!";
+    while (my $line = <$fh>) {
+        if ($line =~ /^\s*node\.session\.auth\.([^\.]+)\s*=\s*(.*?)\s*/) {
+            if ($1 eq 'username') {
+                $user = $2;
+            } elsif ($1 eq 'password') {
+                $pass = $2;
+            }
+        }
+    }
+    close $fh;
+     
+    die "node.session.auth.username not defined in @{[ISCSID_CONF_FILE]}"
+        unless $user;
+    die "node.session.auth.password not defined in @{[ISCSID_CONF_FILE]}"
+        unless $pass;
+     
+    ($user, $pass);
 }
 
 1;
