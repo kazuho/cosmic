@@ -238,6 +238,7 @@ sub _start_raid {
             $self->device_file,
             '--level=1',
             '--bitmap=internal',
+            '--homehost=nonexistent.example.com',
             '--raid-devices=' . scalar(keys %$node_devs),
         );
     } else {
