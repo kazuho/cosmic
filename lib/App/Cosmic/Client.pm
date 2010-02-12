@@ -12,15 +12,10 @@ use JSON qw(from_json to_json);
 use App::Cosmic;
 use base qw(App::Cosmic);
 
-use constant DEV_LOCK_FILE    => CLIENT_CONF_DIR . '/dev.lock';
-use constant DEV_MAP_FILE     => CLIENT_CONF_DIR . '/dev.map';
 use constant DISK_DIR         => CLIENT_CONF_DIR . '/disks';
 use constant ISCSID_CONF_FILE => '/etc/iscsi/iscsid.conf';
 
 __PACKAGE__->mk_accessors(qw(def def_file device_file));
-
-# FIXME support mounting multiple volumes from single host:port, this is
-# a limitation in ndb protocol
 
 sub new {
     my $klass = shift;
@@ -54,6 +49,10 @@ sub connect {
     );
 }
 
+sub disconnect {
+    __PACKAGE__->new->_disconnect;
+}
+
 sub _connect {
     my ($self, %opts) = @_;
     
@@ -61,14 +60,10 @@ sub _connect {
     $self->_change_client();
     
     print "mounting disks...\n";
-    my $node_devs = $self->_mount;
+    $self->_mount;
     
     print "starting RAID array...\n";
-    $self->_start_raid(\%opts, $node_devs);
-}
-
-sub disconnect {
-    __PACKAGE__->new->_disconnect;
+    $self->_start_raid(\%opts);
 }
 
 sub _disconnect {
@@ -143,91 +138,49 @@ sub _change_client {
     }
 }
 
+# mounts all nodes of a block device and returns hash of node => device_file
 sub _mount {
     my $self = shift;
-    my $lock = lock_file(DEV_LOCK_FILE);
     
-    my %r;
-    
-    # mount disk
     for my $node (sort @{$self->def->{nodes}}) {
-        my $dev = sub {
-            for my $size_file (glob '/sys/block/nbd*/size') {
-                if (read_oneline($size_file) == 0) {
-                    $size_file =~ m|^/sys/block/(nbd[0-9]+)/size$|
-                        or die "unexpected filename:$size_file";
-                    return "/dev/$1";
-                }
-            }
-            die "failed to find an unconnected device file";
-        }->();
-        print "  connecting $node to $dev\n";
-        systeml('nbd-client', $node, NBD_PORT, $dev) == 0
-            or die "failed to connect nbd node to:$dev:$?";
-        $self->_update_device_map($node, $dev);
-        $r{$node} = $dev;
+        systeml(
+            qw(iscsiadm --mode=discovery --type=sendtargets),
+            "--portal=$node",
+        ) == 0
+            or die "iscsiadm failed:$?";
+        systeml(
+            qw(iscsiadm --mode=node),
+            "--portal=$node",
+            '--target=' . to_iqn($node, $self->def->{global_name}),
+            '--login',
+        ) == 0
+            or die "iscsiadm failed:$?";
+        for (my $i = 5; ; $i--) {
+            last if
+                readlink(_to_device_file($node, $self->def->{global_name}));
+            die "failed to locate device file"
+                if $i <= 0;
+            sleep 1;
+        }
     }
-    die "no nodes" unless %r;
-    
-    \%r;
 }
 
 sub _unmount {
     my $self = shift;
-    my $lock = lock_file(DEV_LOCK_FILE);
     
-    # update device map, and then load it
-    my $dev_map = $self->_update_device_map;
-    
-    # unmount disk
     for my $node (sort @{$self->def->{nodes}}) {
-        if (my $dev = $dev_map->{$node}) {
-            systeml('nbd-client', '-d', $dev) == 0
-                or die "failed to disconnect nbd node:$?";
-        }
+        systeml(
+            qw(iscsiadm --mode=node),
+            '--target=' . to_iqn($node, $self->def->{global_name}),
+            "--portal=$node",
+            '--logout',
+        ) == 0
+            or warn "iscsiadm failed:$?";
     }
-    
-    # update device map
-    sleep 1;
-    $self->_update_device_map;
-}
-
-sub _update_device_map {
-    my $self = shift;
-    
-    # read current map (if exists)
-    my $dev_map = do {
-        if (open my $fh, '<', DEV_MAP_FILE) {
-            from_json(join '', <$fh>);
-        } elsif ($! == Errno::ENOENT) {
-            +{};
-        } else {
-            die "failed to open file:@{[DEV_MAP_FILE]}:$!:" . ($! + 0);
-        }
-    };
-    # remove all non-connected devices from map
-    for my $node (sort keys %$dev_map) {
-        my $size_file = $dev_map->{$node};
-        $size_file =~ s|^/dev/(.*)$|/sys/block/$1/size|
-            or die "unexpected device file:$size_file";
-        if (read_oneline($size_file) == 0) {
-            delete $dev_map->{$node};
-        }
-    }
-    # add new nodes
-    while (@_) {
-        my $node = shift;
-        my $dev = shift;
-        $dev_map->{$node} = $dev;
-    }
-    # save
-    write_file(DEV_MAP_FILE, to_json($dev_map));
-    
-    $dev_map;
 }
 
 sub _start_raid {
-    my ($self, $opts, $node_devs) = @_;
+    my ($self, $opts) = @_;
     
     # build command
     my @cmd = qw(mdadm);
@@ -239,7 +192,7 @@ sub _start_raid {
             '--level=1',
             '--bitmap=internal',
             '--homehost=nonexistent.example.com',
-            '--raid-devices=' . scalar(keys %$node_devs),
+            '--raid-devices=' . scalar(@{$self->def->{nodes}}),
         );
     } else {
         push(
@@ -248,8 +201,8 @@ sub _start_raid {
             $self->device_file,
         );
     }
-    for my $node (sort keys %$node_devs) {
-        push @cmd, $node_devs->{$node};
+    for my $node (sort @{$self->def->{nodes}}) {
+        push @cmd, _to_device_file($node, $self->def->{global_name});
     }
     
     # execute command and read its output
@@ -277,23 +230,30 @@ sub _start_raid {
             };
             die "mdadm --detail failed with exit code:$?"
                 unless $? == 0;
+            # build list of active devices
             # build list of devices to re-add
-            splice @lines, 0, @lines - scalar(keys %$node_devs);
-            my %readd = map { $_ => 1 } values %$node_devs;
+            splice @lines, 0, @lines - scalar @{$self->def->{nodes}};
+            my %active;
             for my $line (@lines) {
-                if ($line =~ m{\s+active\s+sync\s+(/dev/nbd\d+)\s*$}) {
-                    delete $readd{$1};
+                if ($line =~ m{\s+active\s+sync\s+(/dev/sd.)\s*$}) {
+                    $active{$1} = 1;
                 }
             }
+            my @readd = grep {
+                my $path = _to_device_file($_, $self->def->{global_name});
+                my $f = readlink $path
+                    or die "readlink failed on:$path:$!";
+                ! $active{$f};
+            } @{$self->def->{nodes}};
             # check, just to make sure
             die "failed to build list of inactive nodes"
-                if scalar(keys %readd) == scalar(keys %$node_devs);
+                unless @readd;
             # readd
             systeml(
                 qw(mdadm --manage),
                 $self->device_file,
                 '--re-add',
-                sort keys %readd,
+                @readd,
             ) == 0
                 or warn "mdadm --re-add failed with exit code:$?";
         }
@@ -315,11 +275,13 @@ sub _read_userpass {
     open my $fh, '<', ISCSID_CONF_FILE
         or die "failed to open file:@{[ISCSID_CONF_FILE]}:$!";
     while (my $line = <$fh>) {
-        if ($line =~ /^\s*node\.session\.auth\.([^\.]+)\s*=\s*(.*?)\s*/) {
-            if ($1 eq 'username') {
-                $user = $2;
-            } elsif ($1 eq 'password') {
-                $pass = $2;
+        chomp $line;
+        if ($line =~ /^\s*node\.session\.auth\.([a-z]+)\s*=\s*(.*?\s|.*$)/i) {
+            my ($n, $v) = ($1, $2);
+            if ($n =~ /^username$/i) {
+                $user = $v;
+            } elsif ($n =~ /^password$/i) {
+                $pass = $v;
             }
         }
     }
@@ -331,6 +293,11 @@ sub _read_userpass {
         unless $pass;
      
     ($user, $pass);
+}
+
+sub _to_device_file {
+    my ($host, $ident) = @_;
+    "/dev/disk/by-path/ip-$host:3260-iscsi-" . to_iqn($host, $ident) . "-lun-0";
 }
 
 1;
