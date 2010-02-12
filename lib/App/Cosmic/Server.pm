@@ -124,6 +124,14 @@ sub _get_credentials_of {
     $line ? split(/ /, $line, 2) : (DUMMY_USERNAME, DISABLE_PASSWORD);
 }
 
+sub _devices {
+    my $self = shift;
+    
+    map {
+        substr $_, length $self->device_prefix;
+    } glob $self->device_prefix . '*';
+}
+
 sub _credentials_file_of {
     my ($self, $global_name) = @_;
     SERVER_CONF_DIR . "/$global_name.cred";
