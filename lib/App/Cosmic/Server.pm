@@ -65,6 +65,14 @@ sub create {
     $klass->new->_create(@ARGV);
 }
 
+sub remove {
+    my $klass = shift;
+    die "invalid args, see --help"
+        unless @ARGV == 1;
+    validate_global_name($ARGV[0]);
+    $klass->new->_remove(@ARGV);
+}
+
 sub change_credentials {
     my $klass = shift;
     die "invalid args, see --help"
@@ -103,21 +111,49 @@ sub _create {
     die "device $global_name already exists"
         if -e $self->device_prefix . $global_name;
     
-    # create lv
+    # unlink .cred (just to be sure), create lv
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;
+    unless (unlink $self->_credentials_file_of($global_name)
+                || $! == Errno::ENOENT) {
+        die "failed to remove @{[$self->_credentials_file_of($global_name)]}:$!";
+    }
     my $lvpath = $self->device_prefix . $global_name;
-    my $vgpath = dirname $lvpath;
-    my $lvname = basename $lvpath;
     systeml(
         qw(lvcreate),
         "--size=$size",
-        "--name=$lvname",
-        $vgpath,
+        '--name=' . basename($lvpath),
+        dirname($lvpath),
     ) == 0
         or die "lvm failed:$?";
     # start
     $self->_register_device($global_name, DUMMY_USERNAME, DISABLE_PASSWORD);
+    
+    print "cosmic-done\n";
+    STDOUT->flush;
+}
+
+sub _remove {
+    my ($self, $global_name) = @_;
+    
+    # lock
+    my $global_lock = lock_file(CRED_LOCK_FILE);
+    
+    die "device $global_name does not exist"
+        unless -e $self->device_prefix . $global_name;
+    
+    # disable and drop all connections -> unregister device -> remove lv
+    $self->_print_and_wait("cosmic-ok phase 1\n");
+    $self->_disallow_current($global_name);
+    $self->_unregister_device($global_name);
+    systeml(
+        qw(lvremove -f),
+        $self->device_prefix . $global_name,
+    ) == 0
+        or die "lvm failed:$?";
+    
+    # unlink cred file (might not exist, and this is not a must)
+    unlink $self->_credentials_file_of($global_name);
     
     print "cosmic-done\n";
     STDOUT->flush;
@@ -136,13 +172,7 @@ sub _change_credentials {
     # reset password and stop server, so that there will be no connections
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;
-    $self->_reflect_credentials_of(
-        $global_name,
-        ($self->_get_credentials_of($global_name))[0],
-        DISABLE_PASSWORD,
-    );
-    $self->_set_credentials_of($global_name);
-    $self->_disconnect($global_name);
+    $self->_disallow_current($global_name);
     
     # update passphrase
     $self->_print_and_wait("cosmic-ok phase 2\n")
@@ -167,6 +197,17 @@ sub _print_and_wait {
     chomp $input;
     warn "aborting by client request:$input";
     return;
+}
+
+sub _disallow_current {
+    my ($self, $global_name) = @_;
+    $self->_reflect_credentials_of(
+        $global_name,
+        ($self->_get_credentials_of($global_name))[0],
+        DISABLE_PASSWORD,
+    );
+    $self->_set_credentials_of($global_name);
+    $self->_disconnect($global_name);
 }
 
 sub _get_credentials_of {

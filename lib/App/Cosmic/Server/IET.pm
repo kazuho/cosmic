@@ -40,8 +40,6 @@ sub _register_device {
 sub _unregister_device {
     my ($self, $global_name) = @_;
     
-    $self->_kill_connections_of($global_name);
-    
     my $tid = $self->_sessions_of($global_name);
     systeml(
         qw(ietadm --op delete),

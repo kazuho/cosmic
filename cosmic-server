@@ -17,7 +17,7 @@ print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:start|create|change-credentials|disconnect)$/) {
+if ($cmd =~ /^(?:start|create|remove|change-credentials|disconnect)$/) {
     $cmd =~ s/-/_/g;
     App::Cosmic::Server::IET->$cmd;
 } else {
@@ -47,6 +47,9 @@ cosmic-server - Cosmic server implementation using iSCSI Enterprise Target
 
   # internal: kill existing connections
   cosmic-server disconnect <global-name>
+
+  # internal: remove disk
+  cosmic-server remove <global-name>
 
 =head1 AUTHOR
 

@@ -36,6 +36,15 @@ sub create {
     __PACKAGE__->new($global_name, $device)->_create($size, @nodes);
 }
 
+sub remove {
+    my $klass = shift;
+    die "invalid args, see --help"
+        unless @ARGV == 1;
+    my ($global_name) = @ARGV;
+    validate_global_name($global_name);
+    __PACKAGE__->new($global_name, undef)->_load->_remove();
+}
+
 sub connect {
     my $klass = shift;
     die "invalid args, see --help"
@@ -71,6 +80,19 @@ sub _create {
     
     # connect
     $self->_connect(1);
+}
+
+sub _remove {
+    my $self = shift;
+    
+    print "removing block device from servers...\n";
+    $self->_sync_run(
+        "remove @{[$self->global_name]}",
+    );
+    # unlink def from disk
+    unlink "@{[DISK_DIR]}/@{[$self->global_name]}"
+        or die "failed to remove file:@{[DISK_DIR]}/@{[$self->global_name]}:$!";
+    sync_dir(DISK_DIR);
 }
 
 sub _connect {

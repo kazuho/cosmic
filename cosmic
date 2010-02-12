@@ -17,7 +17,7 @@ print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:create|connect|disconnect)$/) {
+if ($cmd =~ /^(?:create|remove|connect|disconnect)$/) {
     App::Cosmic::Client->$cmd;
 } else {
     die "unknown command: $cmd";
@@ -43,6 +43,9 @@ cosmic - a fail-safe network RAID
   # unmount and disconnect volume
   umount /var/mdX
   cosmic disconnect global-name /dev/mdX
+
+  # remove a volume (should be run when disconnected)
+  cosmic remove global-name
 
 =head1 DESCRIPTION
 
