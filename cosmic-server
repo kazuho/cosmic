@@ -17,7 +17,7 @@ print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:start|stop|change-credentials|disconnect)$/) {
+if ($cmd =~ /^(?:start|create|change-credentials|disconnect)$/) {
     $cmd =~ s/-/_/g;
     App::Cosmic::Server::IET->$cmd;
 } else {
@@ -32,6 +32,28 @@ cosmic-server - Cosmic server implementation using iSCSI Enterprise Target
 
 =head1 SYNOPSIS
 
+  # setup iSCSI targets
+  /etc/init.d/iscsitarget start
   cosmic-server start
+
+  # stop iscsi targets
+  /etc/init.d/iscsitarget stop
+
+  # internal: create new volume
+  cosmic-server create <global-name> <size> <username> <password>
+
+  # internal: change credentials
+  cosmic-server change-credentials <global-name> <username> <password>
+
+  # internal: kill existing connections
+  cosmic-server disconnect <global-name>
+
+=head1 AUTHOR
+
+Copypright (C) 2010 Cybozu Labs, Inc., written by Kazuho Oku
+
+=head1 LICENSE
+
+BSD License
 
 =cut
