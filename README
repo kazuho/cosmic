@@ -15,6 +15,9 @@ SYNOPSIS
       umount /var/mdX
       cosmic disconnect global-name /dev/mdX
 
+      # remove a volume (should be run when disconnected)
+      cosmic remove global-name
+
 DESCRIPTION
     Cosmic is a fail-safe network RAID, built around iSCSI.
 
