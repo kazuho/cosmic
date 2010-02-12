@@ -232,6 +232,7 @@ sub _start_raid {
             @cmd,
             '--create',
             $self->device,
+            '--run',
             '--level=1',
             '--bitmap=internal',
             '--homehost=nonexistent.example.com',
