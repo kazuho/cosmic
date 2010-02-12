@@ -29,7 +29,7 @@ sub new {
     my $self = bless {}, $klass;
     
     # create temporary dir
-    if (mkdir SERVER_TMP_DIR || $! == Errno::EEXIST) {
+    unless (mkdir SERVER_TMP_DIR || $! == Errno::EEXIST) {
         die "failed to create temporary dir:@{[SERVER_TMP_DIR]}:$!";
     }
     chown 0, 0, SERVER_TMP_DIR
