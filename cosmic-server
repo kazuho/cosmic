@@ -40,7 +40,7 @@ cosmic-server - Cosmic server implementation using iSCSI Enterprise Target
   /etc/init.d/iscsitarget stop
 
   # internal: create new volume
-  cosmic-server create <global-name> <size> <username> <password>
+  cosmic-server create <global-name> <size>
 
   # internal: change credentials
   cosmic-server change-credentials <global-name> <username> <password>

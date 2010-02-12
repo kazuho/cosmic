@@ -5,7 +5,6 @@ use warnings;
 
 use Cwd qw(realpath);
 use Errno ();
-use Getopt::Long;
 use File::Basename qw(dirname);
 use IO::Handle;
 use IPC::Open2;
@@ -18,55 +17,73 @@ use constant DISK_DIR            => CLIENT_CONF_DIR . '/disks';
 use constant ISCSID_CONF_FILE    => '/etc/iscsi/iscsid.conf';
 use constant ISCSI_MOUNT_TIMEOUT => 60;
 
-__PACKAGE__->mk_accessors(qw(def def_file device_file));
+__PACKAGE__->mk_accessors(qw(def global_name device));
 
 sub new {
+    my ($klass, $global_name, $device) = @_;
+    bless {
+        global_name => $global_name,
+        device => $device,
+    }, $klass;
+}
+
+sub create {
     my $klass = shift;
-    my $self = bless {}, $klass;
-    
-    # setup
     die "invalid args, see --help"
-        unless @ARGV == 2;
-    $self->def_file(shift @ARGV);
-    $self->device_file(shift @ARGV);
-    $self->def(from_json(do {
-        open my $fh, '<', "@{[DISK_DIR]}/@{[$self->def_file]}"
-            or die "no definition for:@{[$self->def_file]}:$!";
-        join '', <$fh>;
-    }));
-    die "no `uuid' in definition"
-        unless $self->def->{global_name};
-    die "no `nodes' array in definition"
-        unless $self->def->{nodes} && ref $self->def->{nodes} eq 'ARRAY';
-    
-    $self;
+        unless @ARGV >= 5;
+    my ($global_name, $device, $size, @nodes) = @ARGV;
+    validate_global_name($global_name);
+    __PACKAGE__->new($global_name, $device)->_create($size, @nodes);
 }
 
 sub connect {
-    my $opt_create;
-    GetOptions(
-        create => \$opt_create,
-    ) or exit(1);
-    __PACKAGE__->new->_connect(
-        create => $opt_create,
-    );
+    my $klass = shift;
+    die "invalid args, see --help"
+        unless @ARGV == 2;
+    my ($global_name, $device) = @ARGV;
+    validate_global_name($global_name);
+    __PACKAGE__->new($global_name, $device)->_load->_connect;
 }
 
 sub disconnect {
-    __PACKAGE__->new->_disconnect;
+    my $klass = shift;
+    die "invalid args, see --help"
+        unless @ARGV == 2;
+    my ($global_name, $device) = @ARGV;
+    validate_global_name($global_name);
+    __PACKAGE__->new($global_name, $device)->_load->_disconnect;
+}
+
+sub _create {
+    my ($self, $size, @nodes) = @_;
+    
+    # setup def
+    $self->def({
+        nodes => [ @nodes ],
+    });
+    # create block devices
+    print "creating block device on servers...\n";
+    $self->_sync_run(
+        "create @{[$self->global_name]} $size",
+    );
+    # commit def to disk
+    $self->_save;
+    
+    # connect
+    $self->_connect(1);
 }
 
 sub _connect {
-    my ($self, %opts) = @_;
+    my ($self, $do_create) = @_;
     
     print "registering my credentials to block device servers...\n";
-    $self->_change_client();
+    $self->_change_client;
     
     print "mounting disks...\n";
     $self->_mount;
     
     print "starting RAID array...\n";
-    $self->_start_raid(\%opts);
+    $self->_start_raid($do_create);
 }
 
 sub _disconnect {
@@ -83,7 +100,15 @@ sub _change_client {
     my $self = shift;
     
     # read user,pass from iscsi.conf
-    my @userpass = $self->_read_userpass;
+    my ($user, $pass) = $self->_read_userpass;
+    
+    $self->_sync_run(
+        "change-credentials @{[$self->global_name]} $user $pass",
+    );
+}
+
+sub _sync_run {
+    my ($self, $cmd) = @_;
     
     # update all nodes to new_addr using 2pc
     my %nodes = map {
@@ -100,13 +125,7 @@ sub _change_client {
         $nodes{$node}->{pid} = open2(
             $nodes{$node}->{in},
             $nodes{$node}->{out},
-            join(
-                ' ',
-                "ssh root\@$node exec cosmic-server change-credentials",
-                $self->def->{global_name},
-                @userpass,
-                '2>&1',
-            ),
+            "ssh root\@$node exec cosmic-server $cmd 2>&1",
         ) or die "open3 failed:$!";
     }
     
@@ -127,7 +146,7 @@ sub _change_client {
                     last;
                 }
             }
-            die "change-credentials failed on node $node:\n"
+            die "command failed on node $node:\n"
                 . $nodes{$node}->{output}
                     unless $success;
         }
@@ -141,7 +160,6 @@ sub _change_client {
     }
 }
 
-# mounts all nodes of a block device and returns hash of node => device_file
 sub _mount {
     my $self = shift;
     
@@ -154,13 +172,13 @@ sub _mount {
         systeml(
             qw(iscsiadm --mode=node),
             "--portal=$node",
-            '--target=' . to_iqn($node, $self->def->{global_name}),
+            '--target=' . to_iqn($node, $self->global_name),
             '--login',
         ) == 0
             or die "iscsiadm failed:$?";
         for (my $i = ISCSI_MOUNT_TIMEOUT; ; $i--) {
             last if
-                readlink _to_device_file($node, $self->def->{global_name});
+                readlink _to_device($node, $self->global_name);
             die "failed to locate device file"
                 if $i <= 0;
             sleep 1;
@@ -174,7 +192,7 @@ sub _unmount {
     for my $node (sort @{$self->def->{nodes}}) {
         systeml(
             qw(iscsiadm --mode=node),
-            '--target=' . to_iqn($node, $self->def->{global_name}),
+            '--target=' . to_iqn($node, $self->global_name),
             "--portal=$node",
             '--logout',
         ) == 0
@@ -183,15 +201,15 @@ sub _unmount {
 }
 
 sub _start_raid {
-    my ($self, $opts) = @_;
+    my ($self, $do_create) = @_;
     
     # build command
     my @cmd = qw(mdadm);
-    if ($opts->{create}) {
+    if ($do_create) {
         push(
             @cmd,
             '--create',
-            $self->device_file,
+            $self->device,
             '--level=1',
             '--bitmap=internal',
             '--homehost=nonexistent.example.com',
@@ -201,11 +219,11 @@ sub _start_raid {
         push(
             @cmd,
             '--assemble',
-            $self->device_file,
+            $self->device,
         );
     }
     for my $node (sort @{$self->def->{nodes}}) {
-        push @cmd, _to_device_file($node, $self->def->{global_name});
+        push @cmd, _to_device($node, $self->global_name);
     }
     
     # execute command and read its output
@@ -222,12 +240,12 @@ sub _start_raid {
         unless $? == 0;
     
     # try --re-add if assembly is in degraded mode
-    if (! $opts->{create}) {
+    unless ($do_create) {
         if ($last_line =~ /has been started with (\d+) drives? \(out of (\d+)\)\.\s*$/
                 && $1 != $2) {
             # read output of mdadm --detail device
             my @lines = do {
-                open my $fh, '-|', "mdadm --detail @{[$self->device_file]}"
+                open my $fh, '-|', "mdadm --detail @{[$self->device]}"
                     or die "failed to invoke mdadm";
                 <$fh>;
             };
@@ -243,7 +261,7 @@ sub _start_raid {
                 }
             }
             my @readd = map {
-                my $path = _to_device_file($_, $self->def->{global_name});
+                my $path = _to_device($_, $self->global_name);
                 my $f = readlink $path
                     or die "readlink failed on:$path:$!";
                 $f = realpath(dirname($path) . "/$f")
@@ -256,7 +274,7 @@ sub _start_raid {
             # readd
             systeml(
                 qw(mdadm --manage),
-                $self->device_file,
+                $self->device,
                 '--re-add',
                 @readd,
             ) == 0
@@ -268,9 +286,29 @@ sub _start_raid {
 sub _stop_raid {
     my $self = shift;
     systeml(
-        qw(mdadm --stop), $self->device_file,
+        qw(mdadm --stop), $self->device,
     ) == 0
         or die "mdadm failed with exit code:$?";
+}
+
+sub _load {
+    my $self = shift;
+    
+    $self->def(from_json(do {
+        open my $fh, '<', "@{[DISK_DIR]}/@{[$self->global_name]}"
+            or die "no definition for:@{[$self->global_name]}:$!";
+        join '', <$fh>;
+    }));
+    die "no `nodes' array in definition"
+        unless $self->def->{nodes} && ref $self->def->{nodes} eq 'ARRAY';
+    
+    $self;
+}
+
+sub _save {
+    my $self = shift;
+    
+    write_file("@{[DISK_DIR]}/@{[$self->global_name]}", to_json($self->def));
 }
 
 sub _read_userpass {
@@ -300,7 +338,7 @@ sub _read_userpass {
     ($user, $pass);
 }
 
-sub _to_device_file {
+sub _to_device {
     my ($host, $ident) = @_;
     "/dev/disk/by-path/ip-$host:3260-iscsi-" . to_iqn($host, $ident) . "-lun-0";
 }

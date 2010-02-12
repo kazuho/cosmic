@@ -51,7 +51,7 @@ sub start {
 sub create {
     my $klass = shift;
     die "invalid args, see --help"
-        unless @ARGV == 4;
+        unless @ARGV == 2;
     validate_global_name($ARGV[0]);
     $klass->new->_create(@ARGV);
 }
@@ -94,7 +94,7 @@ sub _start {
 }
 
 sub _create {
-    my ($self, $global_name, $size, $user, $pass) = @_;
+    my ($self, $global_name, $size) = @_;
     
     # lock
     my $global_lock = lock_file(CRED_LOCK_FILE);
@@ -116,9 +116,8 @@ sub _create {
         $vgpath,
     ) == 0
         or die "lvm failed:$?";
-    # set credentials and start
-    $self->_set_credentials_of($global_name, $user, $pass);
-    $self->_register_device($global_name, $user, $pass);
+    # start
+    $self->_register_device($global_name, DUMMY_USERNAME, DISABLE_PASSWORD);
     
     print "cosmic-done\n";
     STDOUT->flush;

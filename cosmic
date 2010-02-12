@@ -17,7 +17,7 @@ print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:connect|disconnect)$/) {
+if ($cmd =~ /^(?:create|connect|disconnect)$/) {
     App::Cosmic::Client->$cmd;
 } else {
     die "unknown command: $cmd";
@@ -31,18 +31,18 @@ cosmic - a fail-safe network RAID
 
 =head1 SYNOPSIS
 
-  # connect to and create a new fs
-  cosmic connect --create device-info /dev/md0
-  fdisk -t ext3 /dev/md0
-  mount /dev/md0 /var/md0
+  # create a new volume
+  cosmic create global-name /dev/mdX 10G 10.0.0.1 10.0.0.2
+  mkfs -t ext3 /dev/mdX
+  mount /dev/mdX /var/mdX
   
   # connect to and mount an existing volume
-  cosmic connect device-info /dev/md0
-  mount /dev/md0 /var/md0
+  cosmic connect global-name /dev/mdX
+  mount /dev/mdX /var/mdX
   
   # unmount and disconnect volume
-  umount /var/md0
-  cosmic disconnect device-info /dev/md0
+  umount /var/mdX
+  cosmic disconnect global-name /dev/mdX
 
 =head1 DESCRIPTION
 
