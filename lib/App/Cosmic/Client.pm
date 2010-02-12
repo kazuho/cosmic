@@ -12,8 +12,9 @@ use JSON qw(from_json to_json);
 use App::Cosmic;
 use base qw(App::Cosmic);
 
-use constant DISK_DIR         => CLIENT_CONF_DIR . '/disks';
-use constant ISCSID_CONF_FILE => '/etc/iscsi/iscsid.conf';
+use constant DISK_DIR            => CLIENT_CONF_DIR . '/disks';
+use constant ISCSID_CONF_FILE    => '/etc/iscsi/iscsid.conf';
+use constant ISCSI_MOUNT_TIMEOUT => 60;
 
 __PACKAGE__->mk_accessors(qw(def def_file device_file));
 
@@ -155,7 +156,7 @@ sub _mount {
             '--login',
         ) == 0
             or die "iscsiadm failed:$?";
-        for (my $i = 5; ; $i--) {
+        for (my $i = ISCSI_MOUNT_TIMEOUT; ; $i--) {
             last if
                 readlink(_to_device_file($node, $self->def->{global_name}));
             die "failed to locate device file"
