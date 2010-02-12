@@ -114,7 +114,7 @@ sub _create {
     # unlink .cred (just to be sure), create lv
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;
-    unless (unlink $self->_credentials_file_of($global_name)
+    unless (unlink($self->_credentials_file_of($global_name))
                 || $! == Errno::ENOENT) {
         die "failed to remove @{[$self->_credentials_file_of($global_name)]}:$!";
     }
@@ -146,6 +146,7 @@ sub _remove {
     $self->_print_and_wait("cosmic-ok phase 1\n");
     $self->_disallow_current($global_name);
     $self->_unregister_device($global_name);
+    sleep 1; # seems necessary
     systeml(
         qw(lvremove -f),
         $self->device_prefix . $global_name,
