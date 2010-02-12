@@ -59,39 +59,42 @@ sub _unregister_device {
     
     $self->_kill_connections_of($global_name);
     
-    my $tid = $self->_sessions_of($global_name);
-    systeml(
-        qw(ietadm --op delete),
-        "--tid=$tid->{tid}",
-    ) == 0
-        or die "an error ocurred while unregistering a device using ietadm:$?";
+    if (my $tid = $self->_sessions_of($global_name)) {
+        systeml(
+            qw(ietadm --op delete),
+            "--tid=$tid->{tid}",
+        ) == 0
+            or die "an error ocurred while unregistering a device using ietadm:$?";
+    }
 }
 
 sub _reflect_credentials_of {
     my ($self, $global_name, $user, $pass) = @_;
-    my $tid = $self->_sessions_of($global_name);
     
-    systeml(
-        qw(ietadm --op new --user),
-        "--tid=$tid->{tid}",
-        "--params=IncomingUser=$user,Password=$pass",
-    ) == 0
-        or die "failed to update credentials using ietadm:$?";
+    if (my $tid = $self->_sessions_of($global_name)) {
+        systeml(
+            qw(ietadm --op new --user),
+            "--tid=$tid->{tid}",
+            "--params=IncomingUser=$user,Password=$pass",
+        ) == 0
+            or die "failed to update credentials using ietadm:$?";
+    }
 }
 
 sub _kill_connections_of {
     my ($self, $global_name) = @_;
-    my $tid = $self->_sessions_of($global_name);
     
-    for my $sid (@{$tid->{sid}}) {
-        for my $cid (@{$sid->{cid}}) {
-            systeml(
-                qw(ietadm --op delete),
-                "--tid=$tid->{tid}",
-                "--sid=$sid->{sid}",
-                "--cid=$cid->{cid}",
-            ) == 0
-                or die "failed to kill connections using ietadm:$?";
+    if (my $tid = $self->_sessions_of($global_name)) {
+        for my $sid (@{$tid->{sid}}) {
+            for my $cid (@{$sid->{cid}}) {
+                systeml(
+                    qw(ietadm --op delete),
+                    "--tid=$tid->{tid}",
+                    "--sid=$sid->{sid}",
+                    "--cid=$cid->{cid}",
+                ) == 0
+                    or die "failed to kill connections using ietadm:$?";
+            }
         }
     }
 }
@@ -130,7 +133,7 @@ sub _sessions_of {
     my @tids = grep {
         $_->{name} eq to_iqn($self->iqn_host, $global_name)
     } $self->_read_iet_session;
-    die "no target found for name:$global_name"
+    return
         unless @tids;
     die "too many targets found for name:$global_name"
         if @tids > 1;
