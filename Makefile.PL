@@ -13,4 +13,6 @@ install_script 'cosmic-server';
 auto_include;
 auto_install;
 
+auto_bundle_deps;
+
 WriteAll;
