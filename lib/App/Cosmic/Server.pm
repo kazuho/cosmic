@@ -104,6 +104,8 @@ sub _create {
         if -e $self->device_prefix . $global_name;
     
     # create lv
+    $self->_print_and_wait("cosmic-ok phase 1\n")
+        or return;
     my $lvpath = $self->device_prefix . $global_name;
     my $vgpath = dirname $lvpath;
     my $lvname = basename $lvpath;
@@ -117,6 +119,9 @@ sub _create {
     # set credentials and start
     $self->_set_credentials_of($global_name, $user, $pass);
     $self->_register_device($global_name, $user, $pass);
+    
+    print "cosmic-done\n";
+    STDOUT->flush;
 }
 
 sub _change_credentials {
