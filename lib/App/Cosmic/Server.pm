@@ -126,11 +126,6 @@ sub _create {
         dirname($lvpath),
     ) == 0
         or die "lvm failed:$?";
-    system(
-        qw(dd if=/dev/zero bs=1048576 count=100),
-        "of=$lvpath",
-    ) == 0
-        or die "failed to erase superblock of RAID using dd:$?";
     # start
     $self->_register_device($global_name, DUMMY_USERNAME, DISABLE_PASSWORD);
     
