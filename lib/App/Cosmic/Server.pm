@@ -143,7 +143,8 @@ sub _remove {
         unless -e $self->device_prefix . $global_name;
     
     # disable and drop all connections -> unregister device -> remove lv
-    $self->_print_and_wait("cosmic-ok phase 1\n");
+    $self->_print_and_wait("cosmic-ok phase 1\n")
+        or return;
     $self->_disallow_current($global_name);
     $self->_unregister_device($global_name);
     sleep 1; # seems necessary
