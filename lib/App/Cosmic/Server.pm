@@ -28,6 +28,15 @@ sub new {
     my $klass = shift;
     my $self = bless {}, $klass;
     
+    # create temporary dir
+    if (mkdir SERVER_TMP_DIR || $! == Errno::EEXIST) {
+        die "failed to create temporary dir:@{[SERVER_TMP_DIR]}:$!";
+    }
+    chown 0, 0, SERVER_TMP_DIR
+        or die "chown root:root @{[SERVER_TMP_DIR]} failed:$!";
+    chmod 0755, SERVER_TMP_DIR
+        or die "chmod 755 @{[SERVER_TMP_DIR]} failed:$!";
+    
     # read configuration
     my $json = from_json(do {
         open my $fh, '<', SERVER_CONF_FILE
@@ -74,15 +83,6 @@ sub disconnect {
 
 sub _start {
     my $self = shift;
-    
-    # create temporary dir
-    if (mkdir SERVER_TMP_DIR || $! == Errno::EEXIST) {
-        die "failed to create temporary dir:@{[SERVER_TMP_DIR]}:$!";
-    }
-    chown 0, 0, SERVER_TMP_DIR
-        or die "chown root:root @{[SERVER_TMP_DIR]} failed:$!";
-    chmod 0755, SERVER_TMP_DIR
-        or die "chmod 755 @{[SERVER_TMP_DIR]} failed:$!";
     
     # register devices
     for my $global_name ($self->_devices) {
