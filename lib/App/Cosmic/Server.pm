@@ -210,6 +210,8 @@ sub _disallow_current {
     $self->_set_credentials_of($global_name);
     sleep 1; # just in case set credentials is async
     $self->_disconnect($global_name);
+    sleep 1;
+    $self->_disconnect($global_name);
 }
 
 sub _get_credentials_of {
