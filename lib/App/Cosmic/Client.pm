@@ -3,8 +3,10 @@ package App::Cosmic::Client;
 use strict;
 use warnings;
 
+use Cwd qw(realpath);
 use Errno ();
 use Getopt::Long;
+use File::Basename qw(dirname);
 use IO::Handle;
 use IPC::Open2;
 use JSON qw(from_json to_json);
@@ -158,7 +160,7 @@ sub _mount {
             or die "iscsiadm failed:$?";
         for (my $i = ISCSI_MOUNT_TIMEOUT; ; $i--) {
             last if
-                readlink(_to_device_file($node, $self->def->{global_name}));
+                readlink _to_device_file($node, $self->def->{global_name});
             die "failed to locate device file"
                 if $i <= 0;
             sleep 1;
@@ -240,11 +242,13 @@ sub _start_raid {
                     $active{$1} = 1;
                 }
             }
-            my @readd = grep {
+            my @readd = map {
                 my $path = _to_device_file($_, $self->def->{global_name});
                 my $f = readlink $path
                     or die "readlink failed on:$path:$!";
-                ! $active{$f};
+                $f = realpath(dirname($path) . "/$f")
+                    if $f !~ m|^/|;
+                $active{$f} ? () : ($f)
             } @{$self->def->{nodes}};
             # check, just to make sure
             die "failed to build list of inactive nodes"
