@@ -12,7 +12,7 @@ use POSIX qw(:fcntl_h);
 
 our @EXPORT = (
     qw(CLIENT_CONF_DIR SERVER_CONF_DIR NBD_PORT mk_accessors read_oneline),
-    qw(write_file sync_dir lock_file systeml to_iqn),
+    qw(write_file sync_dir lock_file systeml to_iqn validate_global_name),
 );
 
 use constant CLIENT_CONF_DIR => '/etc/cosmic/client';
@@ -32,9 +32,12 @@ sub mk_accessors {
 }
 
 sub read_oneline {
-    my $fn = shift;
-    open my $fh, '<', $fn
-        or die "failed to open file:$fn:$!";
+    my ($fn, $on_nexist) = @_;
+    open my $fh, '<', $fn or do {
+        return $on_nexist
+            if defined($on_nexist) && $! == Errno::ENOENT;
+        die "failed to open file:$fn:$!";
+    };
     my $line = <$fh>;
     $line = ''
         unless defined $line;
@@ -93,6 +96,12 @@ sub systeml {
 sub to_iqn {
     my ($host, $ident) = @_;
     "iqn.2010-02.arpa.in-addr.$host:$ident";
+}
+
+sub validate_global_name {
+    my $name = shift;
+    die "invalid character in name:$name"
+        if $name =~ /[^A-Za-z0-9_]/;
 }
 
 1;

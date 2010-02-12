@@ -8,23 +8,6 @@ use App::Cosmic;
 use App::Cosmic::Server;
 use base qw(App::Cosmic::Server);
 
-sub _start {
-    my $self = shift;
-    
-    # register devices
-    for my $global_name ($self->_devices) {
-        $self->_register_device(
-            $global_name,
-            $self->_get_credentials_of($global_name),
-        );
-    }
-}
-
-sub _stop {
-    my $self = shift;
-    
-}
-
 sub _register_device {
     my ($self, $global_name, $user, $pass) = @_;
     
@@ -79,7 +62,7 @@ sub _reflect_credentials_of {
         or die "failed to update credentials using ietadm:$?";
 }
 
-sub _kill_connections_of {
+sub _disconnect {
     my ($self, $global_name) = @_;
     my $tid = $self->_sessions_of($global_name);
     
