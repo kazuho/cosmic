@@ -36,14 +36,14 @@ sub _register_device {
         "--tid=$tid",
         "--params=IncomingUser=$user,Password=$pass",
     ) == 0
-        or die "failed to update credentials using ietadm:$!";
+        or die "failed to update credentials using ietadm:$?";
     
     systeml(
         qw(ietadm --op new),
         "--tid=$tid",
         "--params=Name=" . to_iqn($self->iqn_host, $global_name),
     ) == 0
-        or die "failed to create an iSCSI node using ietadm:$!";
+        or die "failed to create an iSCSI node using ietadm:$?";
     
     systeml(
         qw(ietadm --op new),
@@ -51,7 +51,7 @@ sub _register_device {
         "--lun=0",
         "--params=Path=" . $self->device_prefix . $global_name,
     ) == 0
-        or die "failed to setup LUN using ietadm:$!";
+        or die "failed to setup LUN using ietadm:$?";
 }
 
 sub _unregister_device {
@@ -64,7 +64,7 @@ sub _unregister_device {
         qw(ietadm --op delete),
         "--tid=$tid->{tid}",
     ) == 0
-        or die "an error ocurred while unregistering a device using ietadm:$!";
+        or die "an error ocurred while unregistering a device using ietadm:$?";
 }
 
 sub _reflect_credentials_of {
@@ -76,7 +76,7 @@ sub _reflect_credentials_of {
         "--tid=$tid->{tid}",
         "--params=IncomingUser=$user,Password=$pass",
     ) == 0
-        or die "failed to update credentials using ietadm:$!";
+        or die "failed to update credentials using ietadm:$?";
 }
 
 sub _kill_connections_of {
@@ -91,7 +91,7 @@ sub _kill_connections_of {
                 "--sid=$sid->{sid}",
                 "--cid=$cid->{cid}",
             ) == 0
-                or die "failed to kill connections using ietadm:$!";
+                or die "failed to kill connections using ietadm:$?";
         }
     }
 }

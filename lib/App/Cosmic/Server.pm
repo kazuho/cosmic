@@ -15,7 +15,7 @@ use base qw(App::Cosmic);
 
 our @EXPORT = qw(GLOBAL_LOCK_FILE);
 
-use constant GLOBAL_LOCK_FILE => SERVER_CONF_DIR . '/cosmic.lock';
+use constant CRED_LOCK_FILE => SERVER_CONF_DIR . '/cred.lock';
 use constant DUMMY_USERNAME   => 'dummyuser';
 use constant DISABLE_PASSWORD => 'neverconnect00';
 
@@ -64,7 +64,7 @@ sub _change_credentials {
     # FIXME validate $global_name
     
     # lock
-    my $global_lock = lock_file(GLOBAL_LOCK_FILE);
+    my $global_lock = lock_file(CRED_LOCK_FILE);
     
     # check existence of the device
     die "device $global_name does not exist:$!"
