@@ -5,7 +5,6 @@ use warnings;
 
 use Errno ();
 use Exporter qw(import);
-use File::Basename qw(dirname basename);
 use IO::Handle;
 use IO::Socket::INET;
 use JSON qw(from_json);
@@ -14,13 +13,11 @@ use Socket qw(SOMAXCONN);
 use App::Cosmic;
 use base qw(App::Cosmic);
 
-our @EXPORT = qw(GLOBAL_LOCK_FILE);
+our @EXPORT = qw(SERVER_LOCK_FILE SERVER_TMP_DIR);
 
 use constant SERVER_CONF_FILE => SERVER_CONF_DIR . '/cosmic.conf';
 use constant SERVER_TMP_DIR   => '/tmp/cosmic-server';
-use constant CRED_LOCK_FILE   => SERVER_TMP_DIR . '/cred.lock';
-use constant DUMMY_USERNAME   => 'dummyuser';
-use constant DISABLE_PASSWORD => 'neverconnect00';
+use constant SERVER_LOCK_FILE => SERVER_TMP_DIR . 'lockfile';
 
 __PACKAGE__->mk_accessors(qw(device_prefix iqn_host));
 
@@ -89,45 +86,21 @@ sub disconnect {
     $klass->new->_disconnect(@ARGV);
 }
 
-sub _start {
-    my $self = shift;
-    
-    # register devices
-    for my $global_name ($self->_devices) {
-        $self->_register_device(
-            $global_name,
-            $self->_get_credentials_of($global_name),
-        );
-    }
-}
-
 sub _create {
     my ($self, $global_name, $size) = @_;
     
     # lock
-    my $global_lock = lock_file(CRED_LOCK_FILE);
+    my $global_lock = lock_file(SERVER_LOCK_FILE);
     
     # check existence of the device
     die "device $global_name already exists"
-        if -e $self->device_prefix . $global_name;
+        if $self->_device_exists($global_name);
     
-    # unlink .cred (just to be sure), create lv
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;
-    unless (unlink($self->_credentials_file_of($global_name))
-                || $! == Errno::ENOENT) {
-        die "failed to remove @{[$self->_credentials_file_of($global_name)]}:$!";
-    }
-    my $lvpath = $self->device_prefix . $global_name;
-    systeml(
-        qw(lvcreate),
-        "--size=$size",
-        '--name=' . basename($lvpath),
-        dirname($lvpath),
-    ) == 0
-        or die "lvm failed:$?";
-    # start
-    $self->_register_device($global_name, DUMMY_USERNAME, DISABLE_PASSWORD);
+    
+    # doit
+    $self->_create_device($global_name, $size);
     
     print "cosmic-done\n";
     STDOUT->flush;
@@ -137,25 +110,17 @@ sub _remove {
     my ($self, $global_name) = @_;
     
     # lock
-    my $global_lock = lock_file(CRED_LOCK_FILE);
+    my $global_lock = lock_file(SERVER_LOCK_FILE);
     
+    # check existence of the device
     die "device $global_name does not exist"
-        unless -e $self->device_prefix . $global_name;
+        unless $self->_device_exists($global_name);
     
-    # disable and drop all connections -> unregister device -> remove lv
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;
-    $self->_disallow_current($global_name);
-    $self->_unregister_device($global_name);
-    sleep 1; # seems necessary
-    systeml(
-        qw(lvremove -f),
-        $self->device_prefix . $global_name,
-    ) == 0
-        or die "lvm failed:$?";
     
-    # unlink cred file (might not exist, and this is not a must)
-    unlink $self->_credentials_file_of($global_name);
+    # doit
+    $self->_remove_device($global_name);
     
     print "cosmic-done\n";
     STDOUT->flush;
@@ -165,22 +130,23 @@ sub _change_credentials {
     my ($self, $global_name, $new_user, $new_pass) = @_;
     
     # lock
-    my $global_lock = lock_file(CRED_LOCK_FILE);
+    my $global_lock = lock_file(SERVER_LOCK_FILE);
     
     # check existence of the device
     die "device $global_name does not exist:$!"
-        unless -e $self->device_prefix . $global_name;
+        unless $self->_device_exists($global_name);
     
-    # reset password and stop server, so that there will be no connections
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;
+    
+    # disallow current client, and kill its connection
     $self->_disallow_current($global_name);
     
-    # update passphrase
     $self->_print_and_wait("cosmic-ok phase 2\n")
         or return;
-    $self->_set_credentials_of($global_name, $new_user, $new_pass);
-    $self->_reflect_credentials_of($global_name, $new_user, $new_pass);
+    
+    # allow access from new client
+    $self->_allow_one($global_name, $new_user, $new_pass);
     
     print "cosmic-done\n";
     STDOUT->flush;
@@ -199,47 +165,6 @@ sub _print_and_wait {
     chomp $input;
     warn "aborting by client request:$input";
     return;
-}
-
-sub _disallow_current {
-    my ($self, $global_name) = @_;
-    $self->_reflect_credentials_of(
-        $global_name,
-        ($self->_get_credentials_of($global_name))[0],
-        DISABLE_PASSWORD,
-    );
-    $self->_set_credentials_of($global_name);
-    sleep 1; # just in case set credentials is async
-    $self->_disconnect($global_name);
-    sleep 1;
-    $self->_disconnect($global_name);
-}
-
-sub _get_credentials_of {
-    my ($self, $global_name) = @_;
-    my $line = read_oneline($self->_credentials_file_of($global_name), '');
-    $line ? split(/ /, $line, 2) : (DUMMY_USERNAME, DISABLE_PASSWORD);
-}
-
-sub _set_credentials_of {
-    my ($self, $global_name, @userpass) = @_;
-    write_file(
-        $self->_credentials_file_of($global_name),
-        @userpass ? join(' ', @userpass) : '',
-    );
-}
-
-sub _devices {
-    my $self = shift;
-    
-    map {
-        substr $_, length $self->device_prefix;
-    } glob $self->device_prefix . '*';
-}
-
-sub _credentials_file_of {
-    my ($self, $global_name) = @_;
-    SERVER_TMP_DIR . "/$global_name.cred";
 }
 
 1;
