@@ -45,9 +45,6 @@ cosmic-server - Cosmic server implementation using iSCSI Enterprise Target
   # internal: change credentials
   cosmic-server change-credentials <global-name> <username> <password>
 
-  # internal: kill existing connections
-  cosmic-server disconnect <global-name>
-
   # internal: remove disk
   cosmic-server remove <global-name>
 
