@@ -21,7 +21,7 @@ sub _devices {
     for my $tid ($self->_read_iet_session) {
         $tid->{tid} && $tid->{name} =~ /^iqn\.[^:]+:(.*)$/
             or die "unexepected format in /proc/net/iet/session";
-        $devices{$2} = $tid->{name};
+        $devices{$1} = $tid->{name};
         # TODO move device name under some prefix to avoid collision
     }
     \%devices;
