@@ -11,13 +11,13 @@ our $VERSION = '0.01';
 
 pod2usage(1)
     unless @ARGV;
-pog2usage(0)
+pod2usage(0)
     if $ARGV[0] eq '--help';
 print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:start|create|remove|change-credentials)$/) {
+if ($cmd =~ /^(?:start|list|create|remove|change-credentials)$/) {
     $cmd =~ s/-/_/g;
     App::Cosmic::Server->instantiate->$cmd;
 } else {

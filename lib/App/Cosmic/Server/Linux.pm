@@ -8,29 +8,31 @@ use File::Basename qw(dirname basename);
 use List::Util qw(max);
 use App::Cosmic;
 use App::Cosmic::Server;
+
 use base qw(App::Cosmic::Server);
 
 use constant DUMMY_USERNAME   => 'dummyuser';
 use constant DISABLE_PASSWORD => 'neverconnect00';
 
-sub _device_exists {
-    my ($self, $global_name) = @_;
-    -e $self->device_prefix . $global_name;
-}
-
 sub _devices {
     my $self = shift;
+    my %devices;
     
-    map {
-        substr $_, length $self->device_prefix;
-    } glob $self->device_prefix . '*';
+    for my $tid ($self->_read_iet_session) {
+        $tid->{tid} && $tid->{name} =~ /^iqn\.[^:]+:(.*)$/
+            or die "unexepected format in /proc/net/iet/session";
+        $devices{$2} = $tid->{name};
+        # TODO move device name under some prefix to avoid collision
+    }
+    \%devices;
 }
 
 sub _start {
     my $self = shift;
     
     # register devices
-    for my $global_name ($self->_devices) {
+    for my $p (glob $self->device_prefix . '*') {
+        my $global_name = substr $p, length $self->device_prefix;
         $self->_register_device(
             $global_name,
             $self->_get_credentials_of($global_name),

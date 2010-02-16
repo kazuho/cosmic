@@ -8,6 +8,7 @@ use Exporter qw(import);
 use IO::Handle;
 use IO::Socket::INET;
 use JSON qw(from_json);
+use List::Util qw(first);
 use Socket qw(SOMAXCONN);
 
 use App::Cosmic;
@@ -58,32 +59,40 @@ sub new {
 }
 
 sub start {
-    my $klass = shift;
-    $klass->new->_start;
+    my $self = shift;
+    $self->_start;
+}
+
+sub list {
+    my $self = shift;
+    my $devices = $self->_devices;
+    
+    print "$_: $devices->{$_}\n"
+        for sort keys %$devices;
 }
 
 sub create {
-    my $klass = shift;
+    my $self = shift;
     die "invalid args, see --help"
         unless @ARGV == 2;
     validate_global_name($ARGV[0]);
-    $klass->new->_create(@ARGV);
+    $self->_create(@ARGV);
 }
 
 sub remove {
-    my $klass = shift;
+    my $self = shift;
     die "invalid args, see --help"
         unless @ARGV == 1;
     validate_global_name($ARGV[0]);
-    $klass->new->_remove(@ARGV);
+    $self->_remove(@ARGV);
 }
 
 sub change_credentials {
-    my $klass = shift;
+    my $self = shift;
     die "invalid args, see --help"
         unless @ARGV == 3;
     validate_global_name($ARGV[0]);
-    $klass->new->_change_credentials(@ARGV);
+    $self->_change_credentials(@ARGV);
 }
 
 sub _create {
@@ -150,6 +159,12 @@ sub _change_credentials {
     
     print "cosmic-done\n";
     STDOUT->flush;
+}
+
+sub _device_exists {
+    my ($self, $global_name) = @_;
+    
+    ! ! first { $_ eq $global_name } keys %{$self->_devices};
 }
 
 sub _print_and_wait {

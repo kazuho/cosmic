@@ -90,9 +90,8 @@ sub _remove {
         "remove @{[$self->global_name]}",
     );
     # unlink def from disk
-    unlink "@{[DISK_DIR]}/@{[$self->global_name]}"
+    sync_unlink("@{[DISK_DIR]}/@{[$self->global_name]}")
         or die "failed to remove file:@{[DISK_DIR]}/@{[$self->global_name]}:$!";
-    sync_dir(DISK_DIR);
 }
 
 sub _connect {

@@ -12,7 +12,8 @@ use POSIX qw(:fcntl_h);
 
 our @EXPORT = (
     qw(CLIENT_CONF_DIR SERVER_CONF_DIR NBD_PORT mk_accessors read_oneline),
-    qw(write_file sync_dir lock_file systeml to_iqn validate_global_name),
+    qw(write_file sync_unlink sync_dir lock_file systeml to_iqn),
+    qw(validate_global_name),
 );
 
 use constant CLIENT_CONF_DIR => '/etc/cosmic/client';
@@ -61,6 +62,13 @@ sub write_file {
     rename $tmpfn, $fn
         or die "falied to rename file $tmpfn to $fn:$!";
     # sync directory
+    sync_dir(dirname $fn);
+}
+
+sub sync_unlink {
+    my $fn = shift;
+    unlink $fn
+        or die "failed to unlink file:$fn:$!";
     sync_dir(dirname $fn);
 }
 
