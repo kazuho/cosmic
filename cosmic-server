@@ -17,7 +17,7 @@ print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:start|create|remove|change-credentials|disconnect)$/) {
+if ($cmd =~ /^(?:start|create|remove|change-credentials)$/) {
     $cmd =~ s/-/_/g;
     App::Cosmic::Server->instantiate->$cmd;
 } else {

@@ -86,14 +86,6 @@ sub change_credentials {
     $klass->new->_change_credentials(@ARGV);
 }
 
-sub disconnect {
-    my $klass = shift;
-    die "invalid args, see --help"
-        unless @ARGV == 1;
-    validate_global_name($ARGV[0]);
-    $klass->new->_disconnect(@ARGV);
-}
-
 sub _create {
     my ($self, $global_name, $size) = @_;
     

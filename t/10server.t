@@ -84,11 +84,6 @@ run_hook('volume_exists', 'test9999');
 run_phased('change-credentials test9999 aaa bb', 2);
 # TODO check if actually changed
 
-# disconnect
-systeml(qw(cosmic-server disconnect test9999)) == 0
-    or die "cosmic-server disconnect failed:$?";
-# TODO check if actually disconnected
-
 # remove disk
 run_phased('remove test9999', 1);
 run_hook('volume_exists', 'test9999', 1);
