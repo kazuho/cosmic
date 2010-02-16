@@ -5,7 +5,7 @@ use strict;
 use warnings;
 use Pod::Usage;
 
-use App::Cosmic::Server::IET;
+use App::Cosmic::Server;
 
 our $VERSION = '0.01';
 
@@ -19,7 +19,7 @@ print "$VERSION\n"
 my $cmd = shift @ARGV;
 if ($cmd =~ /^(?:start|create|remove|change-credentials|disconnect)$/) {
     $cmd =~ s/-/_/g;
-    App::Cosmic::Server::IET->$cmd;
+    App::Cosmic::Server->instantiate->$cmd;
 } else {
     die "unknown command: $cmd";
 }

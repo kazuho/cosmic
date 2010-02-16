@@ -12,8 +12,11 @@ BEGIN {
 };
 
 use App::Cosmic;
+use App::Cosmic::Server;
 
-my $server;
+$| = 1;
+
+my $server = App::Cosmic::Server->instantiate;
 
 my %DEFAULT_HOOKS = (
     pre_start => sub {},
@@ -22,10 +25,6 @@ my %hooks = (
     linux => {
         %DEFAULT_HOOKS,
         ISCSITARGET   => '/etc/init.d/iscsitarget',
-        init          => sub {
-            require App::Cosmic::Server::IET;
-            App::Cosmic::Server::IET->new;
-        },
         pre_start     => sub {
             my $self = shift;
             systeml($self->{ISCSITARGET}, 'stop') == 0
@@ -71,10 +70,6 @@ sub run_phased {
     while (waitpid($pid, 0) == -1) {}
     is $?, 0, 'major_cmd exits normally';
 }
-
-# init
-$| = 1;
-$server = run_hook('init');
 
 # start
 run_hook('pre_start');

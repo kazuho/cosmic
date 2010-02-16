@@ -1,4 +1,4 @@
-package App::Cosmic::Server::IET;
+package App::Cosmic::Server::Linux;
 
 use strict;
 use warnings;

@@ -21,6 +21,14 @@ use constant SERVER_LOCK_FILE => SERVER_TMP_DIR . 'lockfile';
 
 __PACKAGE__->mk_accessors(qw(device_prefix iqn_host));
 
+sub instantiate {
+    my $klass = __PACKAGE__ . '::' . ucfirst $^O;
+    local $@ = undef;
+    eval "require $klass";
+    die $@ if $@;
+    $klass->new;
+}
+
 sub new {
     my $klass = shift;
     my $self = bless {}, $klass;
