@@ -9,6 +9,8 @@ requires 'JSON';
 
 install_script 'cosmic';
 install_script 'cosmic-server';
+install_script 'iscsitadm-set-secret.py'
+    if $^O eq 'solaris';
 
 auto_include;
 auto_install;
