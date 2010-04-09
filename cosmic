@@ -11,7 +11,7 @@ our $VERSION = '0.01';
 
 pod2usage(1)
     unless @ARGV;
-pog2usage(0)
+pod2usage(0)
     if $ARGV[0] eq '--help';
 print "$VERSION\n"
     if $ARGV[0] eq '--version';
