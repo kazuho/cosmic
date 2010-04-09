@@ -103,12 +103,14 @@ run_phased('change-credentials test9999 aaa ABCDEFGHabcd', 2);
 # TODO check if actually changed
 
 # resize
-run_phased('resize test9999 200M', 1);
-is(
-    run_hook('get_volume_size', 'test9999'),
-    200 * 1024 * 1024,
-    'check volume size',
-);
+if ($^O eq 'solaris') {
+    run_phased('resize test9999 200M', 1);
+    is(
+        run_hook('get_volume_size', 'test9999'),
+        200 * 1024 * 1024,
+        'check volume size',
+    );
+}
 
 # remove disk
 run_phased('remove test9999', 1);

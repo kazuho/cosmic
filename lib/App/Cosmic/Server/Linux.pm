@@ -80,6 +80,12 @@ sub _remove_device {
     unlink $self->_credentials_file_of($global_name);
 }
 
+sub _resize_device {
+    my ($self, $global_name, $size) = @_;
+    
+    die "*** ONLINE RESIZE IS NOT SUPPORTED BY LINUX BACKEND ***\n";
+}
+
 sub _disallow_current {
     my ($self, $global_name) = @_;
     
