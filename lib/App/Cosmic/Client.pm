@@ -143,10 +143,11 @@ sub _sync_run {
     
     # spawn and check
     for my $node (sort keys %nodes) {
+        my $def = _parse_node($node);
         $nodes{$node}->{pid} = open2(
             $nodes{$node}->{in},
             $nodes{$node}->{out},
-            "ssh root\@$node exec cosmic-server $cmd 2>&1",
+            "ssh $def->{user}\@$def->{host} exec $def->{cmd_prefix} cosmic-server $cmd 2>&1",
         ) or die "open3 failed:$!";
     }
     
@@ -184,7 +185,9 @@ sub _sync_run {
 sub _mount {
     my $self = shift;
     
-    for my $node (sort @{$self->def->{nodes}}) {
+    for my $node (map {
+        _parse_node($_)->{host}
+    } sort @{$self->def->{nodes}}) {
         systeml(
             qw(iscsiadm --mode=discovery --type=sendtargets),
             "--portal=$node",
@@ -210,7 +213,9 @@ sub _mount {
 sub _unmount {
     my $self = shift;
     
-    for my $node (sort @{$self->def->{nodes}}) {
+    for my $node (map {
+        _parse_node($_)->{host}
+    } sort @{$self->def->{nodes}}) {
         systeml(
             qw(iscsiadm --mode=node),
             '--target=' . to_iqn($node, $self->global_name),
@@ -244,7 +249,9 @@ sub _start_raid {
             $self->device,
         );
     }
-    for my $node (sort @{$self->def->{nodes}}) {
+    for my $node (map {
+        _parse_node($_)->{host}
+    } sort @{$self->def->{nodes}}) {
         push @cmd, _to_device($node, $self->global_name);
     }
     
@@ -283,7 +290,8 @@ sub _start_raid {
                 }
             }
             my @readd = map {
-                my $path = _to_device($_, $self->global_name);
+                my $path = _to_device(
+                    _parse_node($_)->{host}, $self->global_name);
                 my $f = readlink $path
                     or die "readlink failed on:$path:$!";
                 $f = realpath(dirname($path) . "/$f")
@@ -363,6 +371,21 @@ sub _read_userpass {
 sub _to_device {
     my ($host, $ident) = @_;
     "/dev/disk/by-path/ip-$host:3260-iscsi-" . to_iqn($host, $ident) . "-lun-0";
+}
+
+sub _parse_node {
+    my $ret = {
+        host       => $_[0],
+        user       => 'root',
+        cmd_prefix => '',
+    };
+    if ($ret->{host} =~ m{/}) {
+        ($ret->{host}, $ret->{cmd_prefix}) = ($`, $');
+    }
+    if ($ret->{host} =~ m{\@}) {
+        ($ret->{user}, $ret->{host}) = ($`, $');
+    }
+    $ret;
 }
 
 1;
