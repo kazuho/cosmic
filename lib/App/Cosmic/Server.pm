@@ -87,6 +87,14 @@ sub remove {
     $self->_remove(@ARGV);
 }
 
+sub resize {
+    my $self = shift;
+    die "invalid args, see --help"
+        unless @ARGV == 2;
+    validate_global_name($ARGV[0]);
+    $self->_resize(@ARGV);
+}
+
 sub change_credentials {
     my $self = shift;
     die "invalid args, see --help"
@@ -130,6 +138,26 @@ sub _remove {
     
     # doit
     $self->_remove_device($global_name);
+    
+    print "cosmic-done\n";
+    STDOUT->flush;
+}
+
+sub _resize {
+    my ($self, $global_name, $size) = @_;
+    
+    # lock
+    my $global_lock = lock_file(SERVER_LOCK_FILE);
+    
+    # check existence of the device
+    die "device $global_name does not exist"
+        unless $self->_device_exists($global_name);
+    
+    $self->_print_and_wait("cosmic-ok phase 1\n")
+        or return;
+    
+    # doit
+    $self->_resize_device($global_name, $size);
     
     print "cosmic-done\n";
     STDOUT->flush;

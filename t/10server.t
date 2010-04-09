@@ -31,19 +31,22 @@ my %DEFAULT_HOOKS = (
 my %hooks = (
     linux => {
         %DEFAULT_HOOKS,
-        ISCSITARGET   => '/etc/init.d/iscsitarget',
-        pre_start     => sub {
+        ISCSITARGET     => '/etc/init.d/iscsitarget',
+        pre_start       => sub {
             my $self = shift;
             systeml($self->{ISCSITARGET}, 'stop') == 0
                 or die "iscsitarget failed:$?";
             systeml($self->{ISCSITARGET}, 'start') == 0
                 or die "iscsitarget failed:$?";
         },
-        is_exported => sub {
+        is_exported     => sub {
             my ($self, $global_name) = @_;
             0 != grep {
                 $_->{name} eq to_iqn($server->iqn_host, $global_name)
             } $server->_read_iet_session;
+        },
+        get_volume_size => sub {
+            die "NYI";
         },
     },
     solaris => {
@@ -52,7 +55,13 @@ my %hooks = (
             my ($self, $global_name) = @_;
             $server->_device_exists($global_name);
         },
-    }
+        get_volume_size => sub {
+            my ($self, $global_name) = @_;
+            $server->_sbd_list->{
+                $server->_guid_from_global_name($global_name)
+            }->{size};
+        },
+    },
 );
 
 sub run_hook {
@@ -92,6 +101,14 @@ run_hook('volume_exists', 'test9999');
 $ENV{ITOR} = "iqn.2010-02.com.example.nonexistent";
 run_phased('change-credentials test9999 aaa ABCDEFGHabcd', 2);
 # TODO check if actually changed
+
+# resize
+run_phased('resize test9999 200M', 1);
+is(
+    run_hook('get_volume_size', 'test9999'),
+    200 * 1024 * 1024,
+    'check volume size',
+);
 
 # remove disk
 run_phased('remove test9999', 1);

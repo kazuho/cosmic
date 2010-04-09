@@ -110,6 +110,22 @@ sub _remove_device {
         or die "zfs failed:$?";
 }
 
+sub _resize_device {
+    my ($self, $global_name, $size) = @_;
+    
+    # resize volume
+    systeml(
+        ZFS, 'set', "volsize=$size", $self->device_prefix . $global_name,
+    ) == 0
+        or die "zfs failed:$?";
+    # update lu
+    systeml(
+        SBDADM, qw(modify-lu -s), $size,
+        $self->_guid_from_global_name($global_name),
+    ) == 0
+        or die "sbadm failed:$?";
+}
+
 sub _disallow_current {
     my ($self, $global_name) = @_;
     
@@ -180,26 +196,39 @@ sub _offline_target {
 
 sub _guid_from_global_name {
     my ($self, $global_name) = @_;
+    my $device_path = $self->_device_path_from_global_name($global_name);
+    my $sbds = $self->_sbd_list;
+    
+    for my $guid (keys %$sbds) {
+        return $guid
+            if $sbds->{$guid}->{source} eq $device_path;
+    }
+    
+    die "failed to obtain guid of $global_name using sbdadm";
+}
+
+sub _sbd_list {
+    my $self = shift;
+    my %sbds;
     
     open my $fh, '-|', "@{[SBDADM]} list-lu"
         or die "failed to invoke sbdadm:$!";
     # skip header
     while (my $l = <$fh>) {
-        if ($l =~ /^--------------------------------\s/) {
-            last;
-        }
+        last if $l =~ /^--------------------------------\s/;
     }
     # read and compare like: GUID\s+DATA_SIZE\s+SOURCE
     while (my $l = <$fh>) {
         chomp $l;
         my ($guid, $sz, $src) = split /\s+/, $l;
-        if ($src eq $self->_device_path_from_global_name($global_name)) {
-            close $fh;
-            return $guid;
-        }
+        $sbds{$guid} = +{
+            size   => $sz,
+            source => $src,
+        };
     }
+    close $fh;
     
-    die "failed to obtain guid of $global_name using sbdadm";
+    \%sbds;
 }
 
 sub _device_path_from_global_name {
