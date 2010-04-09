@@ -150,7 +150,6 @@ sub _sync_run {
         $argv .= " env $env"
             if $env;
         $argv .= " cosmic-server $cmd 2>&1";
-        warn $argv;
         $nodes{$node}->{pid} = open2(
             $nodes{$node}->{in},
             $nodes{$node}->{out},
