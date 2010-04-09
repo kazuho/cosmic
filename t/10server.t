@@ -19,7 +19,14 @@ $| = 1;
 my $server = App::Cosmic::Server->instantiate;
 
 my %DEFAULT_HOOKS = (
-    pre_start => sub {},
+    pre_start     => sub {},
+    volume_exists => sub {
+        my ($self, $global_name, $not_exists) = @_;
+        my $f = $not_exists ? sub { ! $_[0] } : sub { $_[0] };
+        my $s = $not_exists ? ' not' : '';
+        ok $f->($server->_device_exists($global_name)), "volume$s exists";
+        ok $f->($self->{is_exported}->($self, $global_name)), "volume is$s exported";
+    },
 );
 my %hooks = (
     linux => {
@@ -32,19 +39,20 @@ my %hooks = (
             systeml($self->{ISCSITARGET}, 'start') == 0
                 or die "iscsitarget failed:$?";
         },
-        volume_exists => sub {
-            my ($self, $global_name, $not_exists) = @_;
-            my $f = $not_exists ? sub { ! $_[0] } : sub { $_[0] };
-            my $s = $not_exists ? ' not' : '';
-            $server->_device_exists($global_name);
-            ok $f->($server->_device_exists($global_name)), "volume$s exists";
-            ok $f->(
-                0 != grep {
-                    $_->{name} eq to_iqn($server->iqn_host, $global_name)
-                } $server->_read_iet_session,
-            ), "volume$s registered as iscsi target";
+        is_exported => sub {
+            my ($self, $global_name) = @_;
+            0 != grep {
+                $_->{name} eq to_iqn($server->iqn_host, $global_name)
+            } $server->_read_iet_session;
         },
     },
+    solaris => {
+        %DEFAULT_HOOKS,
+        is_exported => sub {
+            my ($self, $global_name) = @_;
+            $server->_device_exists($global_name);
+        },
+    }
 );
 
 sub run_hook {
@@ -81,7 +89,8 @@ run_phased('create test9999 100M', 1);
 run_hook('volume_exists', 'test9999');
 
 # change credentials
-run_phased('change-credentials test9999 aaa bb', 2);
+$ENV{ITOR} = "iqn.2010-02.com.example.nonexistent";
+run_phased('change-credentials test9999 aaa ABCDEFGHabcd', 2);
 # TODO check if actually changed
 
 # remove disk
