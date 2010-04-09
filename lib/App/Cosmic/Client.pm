@@ -15,6 +15,7 @@ use base qw(App::Cosmic);
 
 use constant DISK_DIR            => CLIENT_CONF_DIR . '/disks';
 use constant ISCSID_CONF_FILE    => '/etc/iscsi/iscsid.conf';
+use constant ISCSID_ITOR_FILE    => '/etc/iscsi/initiatorname.iscsi';
 use constant ISCSI_MOUNT_TIMEOUT => 60;
 
 __PACKAGE__->mk_accessors(qw(def global_name device));
@@ -125,11 +126,12 @@ sub _change_client {
     
     $self->_sync_run(
         "change-credentials @{[$self->global_name]} $user $pass",
+        "ITOR=@{[$self->_read_itor_iqn]}",
     );
 }
 
 sub _sync_run {
-    my ($self, $cmd) = @_;
+    my ($self, $cmd, $env) = @_;
     
     # update all nodes to new_addr using 2pc
     my %nodes = map {
@@ -144,10 +146,16 @@ sub _sync_run {
     # spawn and check
     for my $node (sort keys %nodes) {
         my $def = _parse_node($node);
+        # solaris uses pexpect, and pexpect requries tty so we use ssh -t -t
+        my $argv = "ssh -t -t $def->{user}\@$def->{host} exec $def->{cmd_prefix}";
+        $argv .= " env $env"
+            if $env;
+        $argv .= " cosmic-server $cmd 2>&1";
+        warn $argv;
         $nodes{$node}->{pid} = open2(
             $nodes{$node}->{in},
             $nodes{$node}->{out},
-            "ssh $def->{user}\@$def->{host} exec $def->{cmd_prefix} cosmic-server $cmd 2>&1",
+            $argv,
         ) or die "open3 failed:$!";
     }
     
@@ -339,6 +347,25 @@ sub _save {
     my $self = shift;
     
     write_file("@{[DISK_DIR]}/@{[$self->global_name]}", to_json($self->def));
+}
+
+sub _read_itor_iqn {
+    my $self = shift;
+    my $iqn;
+    open my $fh, '<', ISCSID_ITOR_FILE
+        or die "failed to open file:@{[ISCSID_ITOR_FILE]}:$!";
+    while (my $line = <$fh>) {
+        chomp $line;
+        if ($line =~ /^\s*InitiatorName\s*=\s*(.*)\s*?$/i) {
+            $iqn = $1;
+            last;
+        }
+    }
+    close $fh;
+    
+    die "InitiatorName not defined in @{[ISCSID_ITOR_FILE]}"
+        unless $iqn;
+    $iqn;
 }
 
 sub _read_userpass {
