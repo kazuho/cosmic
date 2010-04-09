@@ -146,8 +146,7 @@ sub _sync_run {
     # spawn and check
     for my $node (sort keys %nodes) {
         my $def = _parse_node($node);
-        # solaris uses pexpect, and pexpect requries tty so we use ssh -t -t
-        my $argv = "ssh -t -t $def->{user}\@$def->{host} exec $def->{cmd_prefix}";
+        my $argv = "ssh $def->{user}\@$def->{host} exec $def->{cmd_prefix}";
         $argv .= " env $env"
             if $env;
         $argv .= " cosmic-server $cmd 2>&1";
