@@ -18,7 +18,6 @@ our @EXPORT = (
 
 use constant CLIENT_CONF_DIR => '/etc/cosmic/client';
 use constant SERVER_CONF_DIR => '/etc/cosmic/server';
-use constant NBD_PORT => 12349;
 
 sub mk_accessors {
     my $pkg = shift;

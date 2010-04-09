@@ -3,26 +3,32 @@ package App::Cosmic::Server::Solaris;
 use strict;
 use warnings;
 
+use File::Temp qw(tempfile);
+
 use App::Cosmic;
 use App::Cosmic::Server;
 
 use base qw(App::Cosmic::Server);
 
+use constant ITADM           => '/usr/sbin/itadm';
+use constant SBDADM          => '/usr/sbin/sbdadm';
+use constant STMFADM         => '/usr/sbin/stmfadm';
 use constant ZFS             => '/usr/sbin/zfs';
 use constant ZFS_BLOCK_SIZE  => $ENV{COSMIC_ZFS_BLOCK_SIZE} || '64K';
 use constant ZFS_CREATE_ARGS => $ENV{COSMIC_ZFS_CREATE_ARGS} || undef;
-use constant ISCSITADM       => '/usr/sbin/iscsitadm';
-use constant DUMMY_IQN       => 'iqn.2010-02.com.example.nonexistent';
 
 sub _devices {
     my $self = shift;
-    my $targets = $self->_read_targets;
-    
-    +{
-        map {
-            $_ => $targets->{$_}->{'iSCSI Name'},
-        } keys %$targets,
-    };
+    my %devices;
+    my $iqn_prefix = to_iqn($self->iqn_host, '');
+    open my $fh, '-|', "@{[ITADM]} list-target"
+        or die "failed to invoke itadm:$!";
+    while (my $l = <$fh>) {
+        if ($l =~ /^$iqn_prefix(\S+)/) {
+            $devices{$1} = "$iqn_prefix$1";
+        }
+    }
+    \%devices;
 }
 
 sub _start {
@@ -36,33 +42,68 @@ sub _start {
 
 sub _create_device {
     my ($self, $global_name, $size) = @_;
-    my $vol = $self->device_prefix . $global_name;
     
     # create volume
     systeml(
         ZFS, 'create',
         (ZFS_CREATE_ARGS ? split(/\s+/, ZFS_CREATE_ARGS) : ()),
-        '-b', ZFS_BLOCK_SIZE, qw(-V), $size, $vol,
+        '-b', ZFS_BLOCK_SIZE, qw(-V), $size,
+        $self->device_prefix . $global_name,
     ) == 0
         or die "zfs failed:$?";
-    
-    # set shareiscsi flag
+    # create hostgroup for authorization
     systeml(
-        ZFS, qw(set shareiscsi=on), $vol,
+        STMFADM, 'create-hg', "cosmic/$global_name",
     ) == 0
-        or die "zfs failed:$?";
-    
-    # disable access from all initiators
+        or die "stmfadm failed:$?";
+    # create logical unit
     systeml(
-        ISCSITADM, qw(modify target --acl), DUMMY_IQN, $vol
+        SBDADM, 'create-lu', $self->_device_path_from_global_name($global_name),
     ) == 0
-        or die "iscsitadm failed:$?";
+        or die "sbdadm failed:$?";
+    # add view
+    systeml(
+        STMFADM, qw(add-view --host-group), "cosmic/$global_name",
+        $self->_guid_from_global_name($global_name),
+    ) == 0
+        or die "stmfadm failed:$?";
+    # create target
+    systeml(
+        ITADM, qw(create-target -n), to_iqn($self->iqn_host, $global_name),
+    ) == 0
+        or die "itadm failed:$?";
+    # make target offline
+    $self->_offline_target($global_name);
 }
 
 sub _remove_device {
     my ($self, $global_name) = @_;
     
+    # drop active connection and make it offline
     $self->_disallow_current($global_name);
+    # delete target
+    systeml(
+        ITADM, qw(delete-target), to_iqn($self->iqn_host, $global_name),
+    ) == 0
+        or die "itadm failed:$?";
+    # remove view
+    systeml(
+        STMFADM, qw(remove-view -a -l),
+        $self->_guid_from_global_name($global_name),
+    ) == 0
+        or die "stmfadm failed:$?";
+    # delete logical unit
+    systeml(
+        SBDADM, 'delete-lu',
+        $self->_guid_from_global_name($global_name),
+    ) == 0
+        or die "sbdadm failed:$?";
+    # delete hostgroup
+    systeml(
+        STMFADM, 'delete-hg', "cosmic/$global_name",
+    ) == 0
+        or die "stmfadm failed:$?";
+    # delete volume
     systeml(
         ZFS, qw(destroy), $self->device_prefix . $global_name,
     ) == 0
@@ -72,18 +113,17 @@ sub _remove_device {
 sub _disallow_current {
     my ($self, $global_name) = @_;
     
-    # disable access, then unlink the information
-    my $owner_file = $self->_owner_file_of($global_name);
-    if (-e $owner_file) {
-        my $cur = read_oneline($owner_file);
+    # disactivate
+    $self->_offline_target($global_name);
+    # disallow current initiator
+    my $itor_file = $self->_itor_file_of($global_name);
+    if (-e $itor_file) {
         systeml(
-            ISCSITADM,
-            qw(delete target --acl),
-            $cur,
-            $self->device_prefix . $global_name,
+            STMFADM, qw(remove-hg-member -g), "cosmic/$global_name",
+            read_oneline($itor_file),
         ) == 0
-            or die "iscsitadm failed:$?";
-        sync_unlink($owner_file);
+            or die "stmfadm failed:$?";
+        sync_unlink($itor_file);
     }
 }
 
@@ -93,72 +133,81 @@ sub _allow_one {
     my $new_initiator = $ENV{ITOR}
         or die "could not receive initator name from client";
     
-    # save, and then enable access
-    write_file(
-        $self->_owner_file_of($global_name),
-        $new_initiator,
+    # define initiator (may exist already, ignore error)
+    systeml(
+        ITADM, qw(create-initiator -u), $new_user, $new_initiator,
     );
-    # define initiator (ignore errors since it might be already defined.  If
-    # not defined after the call, following calls should fail)
+    # set password
+    my $passfile = do {
+        my ($fh, $fn) = tempfile(UNLINK => 1);
+        print $fh $new_pass;
+        close $fh;
+        $fn;
+    };
     systeml(
-        ISCSITADM, qw(create initiator --iqn), $new_initiator, $new_initiator
-    );
-    # set username
-    systeml(
-        ISCSITADM, qw(modify initiator --chap-name), $new_user, $new_initiator
-    ) == 0
-        or die "iscsitadm failed:$?";
-    # set passphrase
-    my $pid = fork;
-    die "fork(2) failed:$!"
-        unless defined $pid;
-    if ($pid == 0) {
-        # child process
-        exec qw(iscsitadm-set-secret.py), $new_pass, $new_initiator;
-        die "failed to exec iscsitadm-set-secret.py:$!";
-    }
-    while (waitpid($pid, 0) == -1) {}
-    die "iscsitadm failed:$?"
-        unless $? == 0;
-    # update acl
-    systeml(
-        ISCSITADM,
-        qw(modify target --acl),
+        ITADM, qw(modify-initiator -S), $passfile,
         $new_initiator,
-        $self->device_prefix . $global_name,
     ) == 0
-        or die "iscsitadm failed:$?";
+        or die "itadm failed:$?";
+    
+    # store the new initiator name to file, and then update auth info
+    write_file($self->_itor_file_of($global_name), $new_initiator);
+    systeml(
+        STMFADM, qw(add-hg-member -g), "cosmic/$global_name",
+        $new_initiator,
+    ) == 0
+        or die "stmfadm failed:$?";
+    
+    # activate
+    $self->_online_target($global_name);
 }
 
-sub _read_targets {
-    my $self = shift;
-    my %targets;
+sub _online_target {
+    my ($self, $global_name) = @_;
+    systeml(
+        STMFADM, 'online-target', to_iqn($self->iqn_host, $global_name),
+    ) == 0
+        or die "stmfadm failed:$?";
+}
+
+sub _offline_target {
+    my ($self, $global_name) = @_;
+    systeml(
+        STMFADM, 'offline-target', to_iqn($self->iqn_host, $global_name),
+    ) == 0
+        or die "stmfadm failed:$?";
+}
+
+sub _guid_from_global_name {
+    my ($self, $global_name) = @_;
     
-    open my $fh, '-|', "@{[ISCSITADM]} list target"
-        or die "failed to invoke iscsitadm:$!";
-    my $target = undef;
+    open my $fh, '-|', "@{[SBDADM]} list-lu"
+        or die "failed to invoke sbdadm:$!";
+    # skip header
+    while (my $l = <$fh>) {
+        if ($l =~ /^--------------------------------\s/) {
+            last;
+        }
+    }
+    # read and compare like: GUID\s+DATA_SIZE\s+SOURCE
     while (my $l = <$fh>) {
         chomp $l;
-        if ($l =~ /^\S/) {
-            if ($l =~ /^Target: /) {
-                $target = $';
-                if ($target =~ s/^@{[$self->device_prefix]}//) {
-                    $targets{$target} = {};
-                } else {
-                    undef $target;
-                }
-            } else {
-                undef $target;
-            }
-        } elsif ($target && $l =~ /^\s+([^:]+)\s*:\s*/) {
-            $targets{$target}->{$1} = $';
+        my ($guid, $sz, $src) = split /\s+/, $l;
+        if ($src eq $self->_device_path_from_global_name($global_name)) {
+            close $fh;
+            return $guid;
         }
     }
     
-    \%targets;
+    die "failed to obtain guid of $global_name using sbdadm";
 }
 
-sub _owner_file_of {
+sub _device_path_from_global_name {
+    my ($self, $global_name) = @_;
+    "/dev/zvol/rdsk/" . $self->device_prefix . $global_name;
+}
+
+sub _itor_file_of {
     my ($self, $global_name) = @_;
     SERVER_CONF_DIR . "/$global_name.itor";
 }
