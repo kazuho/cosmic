@@ -69,7 +69,7 @@ sub _remove_device {
     # disable and drop all connections -> unregister device -> remove lv
     $self->_disallow_current($global_name);
     $self->_unregister_device($global_name);
-    sleep 1; # seems necessary
+    sleep 5; # seems necessary
     systeml(
         qw(lvremove -f),
         $self->device_prefix . $global_name,

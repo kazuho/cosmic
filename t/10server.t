@@ -68,7 +68,7 @@ sub run_phased {
     my $pid = open2(
         my $infh,
         my $outfh,
-        "cosmic-server $cmd 2>&1",
+        "$^X -Iblib/lib blib/script/cosmic-server $cmd 2>&1",
     ) or die "failed to invoke cosmic-server $major_cmd:$?";
     $outfh->print("next\n" x $lock_cnt);
     my $indata = join '', <$infh>;
