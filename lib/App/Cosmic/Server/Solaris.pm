@@ -88,22 +88,39 @@ sub _disallow_current {
 }
 
 sub _allow_one {
-    my ($self, $global_name, $new_initiator, $new_user, $new_pass) = @_;
+    my ($self, $global_name, $new_user, $new_pass) = @_;
+    
+    my $new_initiator = $ENV{ITOR}
+        or die "could not receive initator name from client";
     
     # save, and then enable access
     write_file(
         $self->_owner_file_of($global_name),
         $new_initiator,
     );
+    # define initiator (ignore errors since it might be already defined.  If
+    # not defined after the call, following calls should fail)
+    systeml(
+        ISCSITADM, qw(create initiator --iqn), $new_initiator, $new_initiator
+    );
+    # set username
     systeml(
         ISCSITADM, qw(modify initiator --chap-name), $new_user, $new_initiator
     ) == 0
         or die "iscsitadm failed:$?";
-    # TODO use Expect to set passphrase
-    systeml(
-        ISCSITADM, qw(modify initiator --chap-secret), $new_pass, $new_initiator
-    ) == 0
-        or die "iscsitadm failed:$?";
+    # set passphrase
+    my $pid = fork;
+    die "fork(2) failed:$!"
+        unless defined $pid;
+    if ($pid == 0) {
+        # child process
+        exec qw(iscsitadm-set-secret.py), $new_pass, $new_initiator;
+        die "failed to exec iscsitadm-set-secret.py:$!";
+    }
+    while (waitpid($pid, 0) == -1) {}
+    die "iscsitadm failed:$?"
+        unless $? == 0;
+    # update acl
     systeml(
         ISCSITADM,
         qw(modify target --acl),
