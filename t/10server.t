@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Cwd qw(abs_path);
 use IPC::Open2;
 use Test::More;
 
@@ -15,6 +16,7 @@ use App::Cosmic;
 use App::Cosmic::Server;
 
 $| = 1;
+$ENV{PATH} = "@{[abs_path('blib/script')]}:$ENV{PATH}";
 
 my $server = App::Cosmic::Server->instantiate;
 
