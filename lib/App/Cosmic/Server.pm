@@ -20,7 +20,7 @@ use constant SERVER_CONF_FILE => SERVER_CONF_DIR . '/cosmic.conf';
 use constant SERVER_TMP_DIR   => '/tmp/cosmic-server';
 use constant SERVER_LOCK_FILE => SERVER_TMP_DIR . 'lockfile';
 
-__PACKAGE__->mk_accessors(qw(device_prefix iqn_host));
+__PACKAGE__->mk_accessors(qw(device_prefix iqn_host force));
 
 sub instantiate {
     my $klass = __PACKAGE__ . '::' . ucfirst $^O;
@@ -81,6 +81,10 @@ sub create {
 
 sub remove {
     my $self = shift;
+    if ($ARGV[0] eq '--force') {
+        $self->force(1);
+        shift @ARGV;
+    }
     die "invalid args, see --help"
         unless @ARGV == 1;
     validate_global_name($ARGV[0]);
@@ -131,7 +135,7 @@ sub _remove {
     
     # check existence of the device
     die "device $global_name does not exist"
-        unless $self->_device_exists($global_name);
+        unless $self->_device_exists($global_name) || $self->force;
     
     $self->_print_and_wait("cosmic-ok phase 1\n")
         or return;

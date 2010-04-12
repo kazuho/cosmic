@@ -85,29 +85,36 @@ sub _remove_device {
     systeml(
         ITADM, qw(delete-target), to_iqn($self->iqn_host, $global_name),
     ) == 0
-        or die "itadm failed:$?";
-    # remove view
-    systeml(
-        STMFADM, qw(remove-view -a -l),
-        $self->_guid_from_global_name($global_name),
-    ) == 0
-        or die "stmfadm failed:$?";
-    # delete logical unit
-    systeml(
-        SBDADM, 'delete-lu',
-        $self->_guid_from_global_name($global_name),
-    ) == 0
-        or die "sbdadm failed:$?";
+        or $self->force
+            or die "itadm failed:$?";
+    # obtain guid
+    my $guid = $self->_guid_from_global_name($global_name);
+    if ($guid) {
+        # remove view
+        systeml(
+            STMFADM, qw(remove-view -a -l), $guid,
+        ) == 0
+            or $self->force
+                or die "stmfadm failed:$?";
+        # delete logical unit
+        systeml(
+            SBDADM, 'delete-lu', $guid,
+        ) == 0
+            or $self->force
+                or die "sbdadm failed:$?";
+    }
     # delete hostgroup
     systeml(
         STMFADM, 'delete-hg', "cosmic/$global_name",
     ) == 0
-        or die "stmfadm failed:$?";
+        or $self->force
+            or die "stmfadm failed:$?";
     # delete volume
     systeml(
         ZFS, qw(destroy), $self->device_prefix . $global_name,
     ) == 0
-        or die "zfs failed:$?";
+        or $self->force
+            or die "zfs failed:$?";
 }
 
 sub _resize_device {
@@ -138,7 +145,8 @@ sub _disallow_current {
             STMFADM, qw(remove-hg-member -g), "cosmic/$global_name",
             read_oneline($itor_file),
         ) == 0
-            or die "stmfadm failed:$?";
+            or $self->force
+                or die "stmfadm failed:$?";
         sync_unlink($itor_file);
     }
 }
@@ -191,7 +199,8 @@ sub _offline_target {
     systeml(
         STMFADM, 'offline-target', to_iqn($self->iqn_host, $global_name),
     ) == 0
-        or die "stmfadm failed:$?";
+        or $self->force
+            or die "stmfadm failed:$?";
     # something seems to be async here.  if we run "cosmic-server remove"
     # without this sleep, kernel panic occurs somewhere around zfs remove.
     sleep 1;
@@ -207,6 +216,7 @@ sub _guid_from_global_name {
             if $sbds->{$guid}->{source} eq $device_path;
     }
     
+    return if $self->force;
     die "failed to obtain guid of $global_name using sbdadm";
 }
 
