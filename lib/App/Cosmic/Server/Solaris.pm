@@ -192,6 +192,9 @@ sub _offline_target {
         STMFADM, 'offline-target', to_iqn($self->iqn_host, $global_name),
     ) == 0
         or die "stmfadm failed:$?";
+    # something seems to be async here.  if we run "cosmic-server remove"
+    # without this sleep, kernel panic occurs somewhere around zfs remove.
+    sleep 1;
 }
 
 sub _guid_from_global_name {
