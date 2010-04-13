@@ -46,7 +46,7 @@ sub _create_device {
     # just to be sure
     unless (unlink($self->_credentials_file_of($global_name))
                 || $! == Errno::ENOENT) {
-        die "failed to remove @{[$self->_credentials_file_of($global_name)]}:$!";
+        die "failed to unlink @{[$self->_credentials_file_of($global_name)]}:$!";
     }
     
     # create lv
@@ -63,7 +63,7 @@ sub _create_device {
     $self->_register_device($global_name, DUMMY_USERNAME, DISABLE_PASSWORD);
 }
 
-sub _remove_device {
+sub _destroy_device {
     my ($self, $global_name) = @_;
     
     # disable and drop all connections -> unregister device -> remove lv

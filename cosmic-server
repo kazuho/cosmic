@@ -17,7 +17,7 @@ print "$VERSION\n"
     if $ARGV[0] eq '--version';
 
 my $cmd = shift @ARGV;
-if ($cmd =~ /^(?:start|list|create|remove|resize|change-credentials)$/) {
+if ($cmd =~ /^(?:start|list|create|destroy|resize|change-credentials)$/) {
     $cmd =~ s/-/_/g;
     App::Cosmic::Server->instantiate->$cmd;
 } else {
@@ -42,8 +42,8 @@ cosmic-server - Cosmic server implementation using iSCSI Enterprise Target
   # internal: create new volume
   cosmic-server create <global-name> <size>
 
-  # internal: remove disk
-  cosmic-server remove <global-name>
+  # internal: destroy disk
+  cosmic-server destroy <global-name>
 
   # internal: resize disk
   cosmic-server resize <global-name> <size>

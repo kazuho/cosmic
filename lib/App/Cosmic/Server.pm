@@ -79,7 +79,7 @@ sub create {
     $self->_create(@ARGV);
 }
 
-sub remove {
+sub destroy {
     my $self = shift;
     if ($ARGV[0] eq '--force') {
         $self->force(1);
@@ -88,7 +88,7 @@ sub remove {
     die "invalid args, see --help"
         unless @ARGV == 1;
     validate_global_name($ARGV[0]);
-    $self->_remove(@ARGV);
+    $self->_destroy(@ARGV);
 }
 
 sub resize {
@@ -127,7 +127,7 @@ sub _create {
     STDOUT->flush;
 }
 
-sub _remove {
+sub _destroy {
     my ($self, $global_name) = @_;
     
     # lock
@@ -141,7 +141,7 @@ sub _remove {
         or return;
     
     # doit
-    $self->_remove_device($global_name);
+    $self->_destroy_device($global_name);
     
     print "cosmic-done\n";
     STDOUT->flush;

@@ -76,7 +76,7 @@ sub _create_device {
     $self->_offline_target($global_name);
 }
 
-sub _remove_device {
+sub _destroy_device {
     my ($self, $global_name) = @_;
     
     # drop active connection and make it offline
@@ -202,7 +202,7 @@ sub _offline_target {
         or $self->force
             or die "stmfadm failed:$?";
     # something seems to be async here.  if we run "cosmic-server remove"
-    # without this sleep, kernel panic occurs somewhere around zfs remove.
+    # without this sleep, kernel panic occurs somewhere around zfs destroy.
     sleep 1;
 }
 

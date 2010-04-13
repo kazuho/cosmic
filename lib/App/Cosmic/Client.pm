@@ -46,13 +46,13 @@ sub add {
     __PACKAGE__->new($global_name, $device)->_load->_add($size, $node, $size);
 }
 
-sub remove {
+sub destroy {
     my $klass = shift;
     die "invalid args, see --help"
         unless @ARGV == 1;
     my ($global_name) = @ARGV;
     validate_global_name($global_name);
-    __PACKAGE__->new($global_name, undef)->_load->_remove();
+    __PACKAGE__->new($global_name, undef)->_load->_destroy();
 }
 
 sub connect {
@@ -137,16 +137,16 @@ sub _add {
         or die "mdadm failed:$?";
 }
 
-sub _remove {
+sub _destroy {
     my $self = shift;
     
     print "removing block device from servers...\n";
     $self->_sync_run(
-        "remove @{[$self->global_name]}",
+        "destroy @{[$self->global_name]}",
     );
     # unlink def from disk
     sync_unlink("@{[DISK_DIR]}/@{[$self->global_name]}")
-        or die "failed to remove file:@{[DISK_DIR]}/@{[$self->global_name]}:$!";
+        or die "failed to unlink file:@{[DISK_DIR]}/@{[$self->global_name]}:$!";
 }
 
 sub _connect {
