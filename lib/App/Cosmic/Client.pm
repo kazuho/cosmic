@@ -64,6 +64,15 @@ sub disconnect {
     __PACKAGE__->new($global_name, $device)->_load->_disconnect;
 }
 
+sub status {
+    my $klass = shift;
+    die "invalid args, see --help"
+        unless @ARGV == 2;
+    my ($global_name, $device) = @ARGV;
+    validate_global_name($global_name);
+    __PACKAGE__->new($global_name, $device)->_load->_status;
+}
+
 sub _create {
     my ($self, $size, @nodes) = @_;
     
@@ -116,6 +125,24 @@ sub _disconnect {
     
     print "unmounting disk...\n";
     $self->_unmount;
+}
+
+sub _status {
+    my $self = shift;
+    
+    my $status = $self->_raid_status();
+    for my $node (sort @{$self->def->{nodes}}) {
+        my $def = _parse_node($node);
+        my $dev_status = 'not connected';
+        my $devfile = readlink _to_device($def->{host}, $self->global_name);
+        if ($devfile) {
+            $devfile =~ s{^\.\./\.\./}{/dev/};
+            $dev_status = $status->{$devfile} || 'unknown';
+        } else {
+            $devfile = '';
+        }
+        print "$node:$devfile:$dev_status\n";
+    }
 }
 
 sub _change_client {
@@ -278,23 +305,13 @@ sub _start_raid {
     unless ($do_create) {
         if ($last_line =~ /has been started with (\d+) drives? \(out of (\d+)\)\.\s*$/
                 && $1 != $2) {
-            # read output of mdadm --detail device
-            my @lines = do {
-                open my $fh, '-|', "mdadm --detail @{[$self->device]}"
-                    or die "failed to invoke mdadm";
-                <$fh>;
-            };
-            die "mdadm --detail failed with exit code:$?"
-                unless $? == 0;
             # build list of active devices
-            # build list of devices to re-add
-            splice @lines, 0, @lines - scalar @{$self->def->{nodes}};
-            my %active;
-            for my $line (@lines) {
-                if ($line =~ m{\s+active\s+sync\s+(/dev/sd.)\s*$}) {
-                    $active{$1} = 1;
-                }
+            my %active = $self->_raid_status;
+            for my $k (keys %active) {
+                delete $active{$k}
+                    unless $active{$k} =~ /^active\s/;
             }
+            # build list of devices to re-add
             my @readd = map {
                 my $path = _to_device(
                     _parse_node($_)->{host}, $self->global_name);
@@ -393,6 +410,17 @@ sub _read_userpass {
     ($user, $pass);
 }
 
+sub _raid_status {
+    my $self = shift;
+    
+    open my $fh, '-|', "mdadm --detail @{[$self->device]}"
+        or die "failed to invoke mdadm:$!";
+    my @lines = <$fh>;
+    die "mdadm --detail failed with exit code:$?"
+        unless $? == 0;
+    _parse_raid_status(@lines);
+}
+
 sub _to_device {
     my ($host, $ident) = @_;
     "/dev/disk/by-path/ip-$host:3260-iscsi-" . to_iqn($host, $ident) . "-lun-0";
@@ -411,6 +439,24 @@ sub _parse_node {
         ($ret->{user}, $ret->{host}) = ($`, $');
     }
     $ret;
+}
+
+sub _parse_raid_status {
+    my @lines = @_;
+    while (@lines) {
+        my $l = shift @lines;
+        last if $l =~ /^\s+Number\s+Major\s+Minor\s+RaidDevice\s+State\s*$/;
+    }
+    my %devices;
+    while (@lines) {
+        my $l = shift @lines;
+        if ($l =~ m{^\s+\d+\s+\d+\s+\d+\s+(?:\d+|-)\s+(.*?)\s+(/dev/sd.)\s*$}) {
+            $devices{$2} = $1;
+        }
+    }
+    die "failed to parse output of mdadm --detail"
+        unless %devices;
+    \%devices;
 }
 
 1;

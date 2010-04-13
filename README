@@ -18,6 +18,9 @@ SYNOPSIS
       # remove a volume (should be run when disconnected)
       cosmic remove global-name
 
+      # display status of a connected volume (as colon-separated values)
+      cosmic status global-name /dev/mdX
+
 DESCRIPTION
     Cosmic is a fail-safe network RAID, built around iSCSI.
 
