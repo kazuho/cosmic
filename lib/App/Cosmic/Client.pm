@@ -6,6 +6,7 @@ use warnings;
 use Cwd qw(realpath);
 use Errno ();
 use File::Basename qw(dirname);
+use Getopt::Long;
 use IO::Handle;
 use IPC::Open2;
 use JSON qw(from_json to_json);
@@ -24,7 +25,7 @@ sub new {
     my ($klass, $global_name, $device) = @_;
     bless {
         global_name => $global_name,
-        device => $device,
+        device      => $device,
     }, $klass;
 }
 
@@ -35,6 +36,14 @@ sub create {
     my ($global_name, $device, $size, @nodes) = @ARGV;
     validate_global_name($global_name);
     __PACKAGE__->new($global_name, $device)->_create($size, @nodes);
+}
+
+sub add {
+    my $klass = shift;
+    die 'invalid args, see --help'
+        unless @ARGV == 4;
+    my ($global_name, $device, $size, $node) = @ARGV;
+    __PACKAGE__->new($global_name, $device)->_load->_add($size, $node, $size);
 }
 
 sub remove {
@@ -92,6 +101,42 @@ sub _create {
     $self->_connect(1);
 }
 
+sub _add {
+    my ($self, $size, $node) = @_;
+    
+    die "node $node is already part of the specfied array"
+        if grep { $_ eq $node } @{$self->def->{nodes}};
+    
+    # create block device
+    print "creating block device on server...\n";
+    $self->_sync_run(
+        "create @{[$self->global_name]} $size",
+        undef,
+        [ $node ],
+    );
+    # update def and commit def to disk
+    push @{$self->def->{nodes}}, $node;
+    $self->_save;
+    
+    # connect target
+    $self->_change_client([ $node ]);
+    $self->_mount([ $node ]);
+    
+    # adjust # of raid devices
+    print "adding device to array...\n";
+    systeml(
+        qw(mdadm --grow), $self->device,
+        "--raid-devices=" . (1 + scalar keys %{$self->_raid_status}),
+    ) == 0
+        or die "mdadm failed:$?";
+    # add device
+    systeml(
+        qw(mdadm --manage), $self->device,
+        '--add', _to_device(_parse_node($node)->{host}, $self->global_name),
+    ) == 0
+        or die "mdadm failed:$?";
+}
+
 sub _remove {
     my $self = shift;
     
@@ -107,10 +152,8 @@ sub _remove {
 sub _connect {
     my ($self, $do_create) = @_;
     
-    print "registering my credentials to block device servers...\n";
+    # connect target
     $self->_change_client;
-    
-    print "mounting disks...\n";
     $self->_mount;
     
     print "starting RAID array...\n";
@@ -146,7 +189,10 @@ sub _status {
 }
 
 sub _change_client {
-    my $self = shift;
+    my ($self, $nodes) = @_;
+    $nodes ||= $self->def->{nodes};
+    
+    print "registering my credentials to block device servers...\n";
     
     # read user,pass from iscsi.conf
     my ($user, $pass) = $self->_read_userpass;
@@ -154,11 +200,15 @@ sub _change_client {
     $self->_sync_run(
         "change-credentials @{[$self->global_name]} $user $pass",
         "ITOR=@{[$self->_read_itor_iqn]}",
+        undef,
+        $nodes,
     );
 }
 
 sub _sync_run {
-    my ($self, $cmd, $env) = @_;
+    my ($self, $cmd, $env, $target_nodes) = @_;
+    
+    $target_nodes ||= $self->def->{nodes};
     
     # update all nodes to new_addr using 2pc
     my %nodes = map {
@@ -168,7 +218,7 @@ sub _sync_run {
             # in: input from remote
             output => '',
         },
-    } @{$self->def->{nodes}};
+    } @$target_nodes;
     
     # spawn and check
     for my $node (sort keys %nodes) {
@@ -216,11 +266,14 @@ sub _sync_run {
 }
 
 sub _mount {
-    my $self = shift;
+    my ($self, $nodes) = @_;
+    $nodes ||= $self->def->{nodes};
+    
+    print "mounting disks...\n";
     
     for my $node (map {
         _parse_node($_)->{host}
-    } sort @{$self->def->{nodes}}) {
+    } sort @$nodes) {
         systeml(
             qw(iscsiadm --mode=discovery --type=sendtargets),
             "--portal=$node",
