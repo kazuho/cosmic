@@ -35,6 +35,8 @@ sub create {
         unless @ARGV >= 5;
     my ($global_name, $device, $size, @nodes) = @ARGV;
     validate_global_name($global_name);
+    die "specified md array seems to be in use"
+        if _get_devices_of_array($device);
     __PACKAGE__->new($global_name, $device)->_create($size, @nodes);
 }
 
@@ -43,6 +45,7 @@ sub add {
     die 'invalid args, see --help'
         unless @ARGV == 4;
     my ($global_name, $device, $size, $node) = @ARGV;
+    validate_global_name($global_name);
     __PACKAGE__->new($global_name, $device)->_load->_add($size, $node);
 }
 
@@ -69,6 +72,8 @@ sub connect {
         unless @ARGV == 2;
     my ($global_name, $device) = @ARGV;
     validate_global_name($global_name);
+    die "specified md array seems to be in use"
+        if _get_devices_of_array($device);
     __PACKAGE__->new($global_name, $device)->_load->_connect;
 }
 
@@ -399,13 +404,13 @@ sub _start_raid {
     
     # try --re-add if assembly is in degraded mode
     unless ($do_create) {
-        if ($last_line =~ /has been started with (\d+) drives? \(out of (\d+)\)\.\s*$/
-                && $1 != $2) {
+        if ($last_line =~ /has been started with (\d+) drives/
+                && $1 != scalar(@{$self->def->{nodes}})) {
             # build list of active devices
-            my %active = $self->_raid_status;
-            for my $k (keys %active) {
-                delete $active{$k}
-                    unless $active{$k} =~ /^active\s/;
+            my $active = $self->_raid_status;
+            for my $k (keys %$active) {
+                delete $active->{$k}
+                    unless $active->{$k} =~ /^active\s/;
             }
             # build list of devices to re-add
             my @readd = map {
@@ -414,7 +419,7 @@ sub _start_raid {
                     $self->global_name,
                     1,
                 );
-                $active{$path} ? () : ($path)
+                $active->{$path} ? () : ($path)
             } @{$self->def->{nodes}};
             # check, just to make sure
             die "failed to build list of inactive nodes"
@@ -427,6 +432,14 @@ sub _start_raid {
                 @readd,
             ) == 0
                 or warn "mdadm --re-add failed with exit code:$?";
+        }
+        if ($last_line =~ /has been started with \d+ drives.*out of/) {
+            print "updating number of devices in array...\n";
+            systeml(
+                qw(mdadm --grow), $self->device,
+                "--raid-devices=" . scalar(@{$self->def->{nodes}}),
+            ) == 0
+                or warn "mdadm --grow failed with exit code:$?";
         }
     }
 }
@@ -510,12 +523,19 @@ sub _read_userpass {
 
 sub _raid_status {
     my $self = shift;
-    
-    open my $fh, '-|', "mdadm --detail @{[$self->device]}"
-        or die "failed to invoke mdadm:$!";
+    my $ret = _get_devices_of_array($self->device)
+        or die "mdadm --detail failed with exit code:$?";
+    $ret;
+}
+
+sub _get_devices_of_array {
+    my $md = shift;
+    open my $fh, '-|', "mdadm --detail $md"
+        or die "failed to spawn mdadm --detail $md:$!";
     my @lines = <$fh>;
-    die "mdadm --detail failed with exit code:$?"
-        unless $? == 0;
+    close $fh;
+    return
+        if $? != 0;
     _parse_raid_status(@lines);
 }
 
@@ -554,7 +574,8 @@ sub _parse_raid_status {
     my %devices;
     while (@lines) {
         my $l = shift @lines;
-        if ($l =~ m{^\s+\d+\s+\d+\s+\d+\s+(?:\d+|-)\s+(.*?)\s+(/dev/sd.)\s*$}) {
+        chomp $l;
+        if ($l =~ m{^\s+\d+\s+\d+\s+\d+\s+(?:\d+|-)\s+(.*?)\s+(/dev/[^ ]+)\s*$}) {
             $devices{$2} = $1;
         }
     }
