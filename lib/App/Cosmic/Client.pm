@@ -137,7 +137,7 @@ sub _status {
         my $devfile = readlink _to_device($def->{host}, $self->global_name);
         if ($devfile) {
             $devfile =~ s{^\.\./\.\./}{/dev/};
-            $dev_status = $status->{$devfile} || 'unknown';
+            $dev_status = $status->{$devfile} || 'connected but not assembled';
         } else {
             $devfile = '';
         }
