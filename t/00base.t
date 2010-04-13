@@ -58,5 +58,17 @@ EOT
     },
     'parse mdadm --detail (faulty spare)',
 );
+is_deeply(
+    App::Cosmic::Client::_parse_raid_status(map { "$_\n" } split /\n/, <<'EOT'),
+    Number   Major   Minor   RaidDevice State
+       0       8       64        0      active sync   /dev/sde
+       1       0        0        1      removed
+EOT
+    ,
+    +{
+        '/dev/sde' => 'active sync',
+    },
+    'parse mdadm --detail (with remove)',
+);
 
 done_testing;
