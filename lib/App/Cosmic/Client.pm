@@ -46,7 +46,8 @@ sub add {
         unless @ARGV == 4;
     my ($global_name, $device, $size, $node) = @ARGV;
     validate_global_name($global_name);
-    __PACKAGE__->new($global_name, $device)->_load->_add($size, $node);
+    __PACKAGE__->new($global_name, $device)->_load
+        ->_assert_md_ownership->_add($size, $node);
 }
 
 sub remove {
@@ -54,7 +55,8 @@ sub remove {
     die 'invalid args, see --help'
         unless @ARGV == 3;
     my ($global_name, $device, $node) = @ARGV;
-    __PACKAGE__->new($global_name, $device)->_load->_remove($node);
+    __PACKAGE__->new($global_name, $device)->_load
+        ->_assert_md_ownership->_remove($node);
 }
 
 sub destroy {
@@ -83,7 +85,8 @@ sub disconnect {
         unless @ARGV == 2;
     my ($global_name, $device) = @ARGV;
     validate_global_name($global_name);
-    __PACKAGE__->new($global_name, $device)->_load->_disconnect;
+    __PACKAGE__->new($global_name, $device)->_load
+        ->_assert_md_ownership->_disconnect;
 }
 
 sub status {
@@ -92,7 +95,8 @@ sub status {
         unless @ARGV == 2;
     my ($global_name, $device) = @ARGV;
     validate_global_name($global_name);
-    __PACKAGE__->new($global_name, $device)->_load->_status;
+    __PACKAGE__->new($global_name, $device)->_load
+        ->_assert_md_ownership->_status;
 }
 
 sub _create {
@@ -180,6 +184,8 @@ sub _remove {
         undef,
         [ $node ],
     );
+    # update # of raid devices
+    $self->_adjust_num_devices;
 }
 
 sub _destroy {
@@ -433,14 +439,8 @@ sub _start_raid {
             ) == 0
                 or warn "mdadm --re-add failed with exit code:$?";
         }
-        if ($last_line =~ /has been started with \d+ drives.*out of/) {
-            print "updating number of devices in array...\n";
-            systeml(
-                qw(mdadm --grow), $self->device,
-                "--raid-devices=" . scalar(@{$self->def->{nodes}}),
-            ) == 0
-                or warn "mdadm --grow failed with exit code:$?";
-        }
+        $self->_adjust_num_devices
+            if $last_line =~ /has been started with \d+ drives.*out of/;
     }
 }
 
@@ -455,6 +455,16 @@ sub _stop_raid {
         or die "mdadm failed with exit code:$?";
 }
 
+sub _adjust_num_devices {
+    my $self = shift;
+    print "updating number of devices in array...\n";
+    systeml(
+        qw(mdadm --grow), $self->device,
+        "--raid-devices=" . scalar(@{$self->def->{nodes}}),
+    ) == 0
+        or warn "mdadm --grow failed with exit code:$?";
+}
+
 sub _load {
     my $self = shift;
     
@@ -465,6 +475,33 @@ sub _load {
     }));
     die "no `nodes' array in definition"
         unless $self->def->{nodes} && ref $self->def->{nodes} eq 'ARRAY';
+    
+    $self;
+}
+
+sub _assert_md_ownership {
+    my $self = shift;
+    
+    # validate if a connected cosmic target occupies the specified md array
+    my %cosmic_devices;
+    for my $node (sort @{$self->def->{nodes}}) {
+        my $devfile;
+        eval {
+            $devfile = _to_device(
+                _parse_node($node)->{host},
+                $self->global_name,
+                1,
+            );
+        };
+        $cosmic_devices{$devfile} = 1
+            if $devfile;
+    }
+    my $md_devices = $self->_raid_status
+        or die "specified md array seems to be inactive";
+    for my $md_dev (sort keys %$md_devices) {
+        die "the md array is not attached to the specified cosmic devices"
+            unless $cosmic_devices{$md_dev};
+    }
     
     $self;
 }
