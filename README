@@ -15,8 +15,14 @@ SYNOPSIS
       umount /var/mdX
       cosmic disconnect global-name /dev/mdX
 
-      # remove a volume (should be run when disconnected)
-      cosmic remove global-name
+      # destroy a volume (should be run when disconnected)
+      cosmic destroy global-name
+
+      # add a new target to RAID array
+      cosmic add global-name /dev/mdX 10G 10.0.0.3
+
+      # remove a target from RAID array
+      cosmic remove global-name /dev/mdX 10.0.0.3
 
       # display status of a connected volume (as colon-separated values)
       cosmic status global-name /dev/mdX

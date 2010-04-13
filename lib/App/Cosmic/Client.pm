@@ -43,7 +43,15 @@ sub add {
     die 'invalid args, see --help'
         unless @ARGV == 4;
     my ($global_name, $device, $size, $node) = @ARGV;
-    __PACKAGE__->new($global_name, $device)->_load->_add($size, $node, $size);
+    __PACKAGE__->new($global_name, $device)->_load->_add($size, $node);
+}
+
+sub remove {
+    my $klass = shift;
+    die 'invalid args, see --help'
+        unless @ARGV == 3;
+    my ($global_name, $device, $node) = @ARGV;
+    __PACKAGE__->new($global_name, $device)->_load->_remove($node);
 }
 
 sub destroy {
@@ -137,6 +145,38 @@ sub _add {
         or die "mdadm failed:$?";
 }
 
+sub _remove {
+    my ($self, $node) = @_;
+    
+    die "node $node is not part of the specified array"
+        unless grep { $_ eq $node } @{$self->def->{nodes}};
+    
+    my $devfile = _to_device(_parse_node($node)->{host}, $self->global_name, 1)
+        or die "$node is not connected";
+    
+    # set flag on array
+    systeml(
+        qw(mdadm --manage), $self->device, '--fail', $devfile,
+    ) == 0
+        or die "mdadm failed:$?";
+    # remove from array
+    system(
+        qw(mdadm --manage), $self->device, '--remove', $devfile,
+    ) == 0
+        or die "mdadm failed:$?";
+    # update def and commit to disk
+    $self->def->{nodes} = [ grep { $_ ne $node } @{$self->def->{nodes}} ];
+    $self->_save;
+    # disconnect
+    $self->_unmount([ $node ]);
+    # remove from server
+    $self->_sync_run(
+        "destroy @{[$self->global_name]}",
+        undef,
+        [ $node ],
+    );
+}
+
 sub _destroy {
     my $self = shift;
     
@@ -163,10 +203,8 @@ sub _connect {
 sub _disconnect {
     my $self = shift;
     
-    print "stopping RAID array...\n";
     $self->_stop_raid;
     
-    print "unmounting disk...\n";
     $self->_unmount;
 }
 
@@ -177,9 +215,11 @@ sub _status {
     for my $node (sort @{$self->def->{nodes}}) {
         my $def = _parse_node($node);
         my $dev_status = 'not connected';
-        my $devfile = readlink _to_device($def->{host}, $self->global_name);
+        my $devfile;
+        eval {
+            $devfile = _to_device($def->{host}, $self->global_name, 1);
+        };
         if ($devfile) {
-            $devfile =~ s{^\.\./\.\./}{/dev/};
             $dev_status = $status->{$devfile} || 'connected but not assembled';
         } else {
             $devfile = '';
@@ -274,6 +314,7 @@ sub _mount {
     for my $node (map {
         _parse_node($_)->{host}
     } sort @$nodes) {
+        # mount iscsi target
         systeml(
             qw(iscsiadm --mode=discovery --type=sendtargets),
             "--portal=$node",
@@ -286,9 +327,9 @@ sub _mount {
             '--login',
         ) == 0
             or die "iscsiadm failed:$?";
+        # wait for completion
         for (my $i = ISCSI_MOUNT_TIMEOUT; ; $i--) {
-            last if
-                readlink _to_device($node, $self->global_name);
+            last if -e _to_device($node, $self->global_name);
             die "failed to locate device file"
                 if $i <= 0;
             sleep 1;
@@ -297,11 +338,13 @@ sub _mount {
 }
 
 sub _unmount {
-    my $self = shift;
+    my ($self, $nodes) = @_;
     
-    for my $node (map {
-        _parse_node($_)->{host}
-    } sort @{$self->def->{nodes}}) {
+    print "unmounting disk...\n";
+    
+    $nodes ||= $self->def->{nodes};
+    
+    for my $node (map { _parse_node($_)->{host} } sort @$nodes) {
         systeml(
             qw(iscsiadm --mode=node),
             '--target=' . to_iqn($node, $self->global_name),
@@ -338,7 +381,7 @@ sub _start_raid {
     for my $node (map {
         _parse_node($_)->{host}
     } sort @{$self->def->{nodes}}) {
-        push @cmd, _to_device($node, $self->global_name);
+        push @cmd, _to_device($node, $self->global_name, 1);
     }
     
     # execute command and read its output
@@ -367,12 +410,11 @@ sub _start_raid {
             # build list of devices to re-add
             my @readd = map {
                 my $path = _to_device(
-                    _parse_node($_)->{host}, $self->global_name);
-                my $f = readlink $path
-                    or die "readlink failed on:$path:$!";
-                $f = realpath(dirname($path) . "/$f")
-                    if $f !~ m|^/|;
-                $active{$f} ? () : ($f)
+                    _parse_node($_)->{host},
+                    $self->global_name,
+                    1,
+                );
+                $active{$path} ? () : ($path)
             } @{$self->def->{nodes}};
             # check, just to make sure
             die "failed to build list of inactive nodes"
@@ -391,6 +433,9 @@ sub _start_raid {
 
 sub _stop_raid {
     my $self = shift;
+    
+    print "stopping RAID array...\n";
+    
     systeml(
         qw(mdadm --stop), $self->device,
     ) == 0
@@ -475,8 +520,14 @@ sub _raid_status {
 }
 
 sub _to_device {
-    my ($host, $ident) = @_;
-    "/dev/disk/by-path/ip-$host:3260-iscsi-" . to_iqn($host, $ident) . "-lun-0";
+    my ($host, $ident, $resolve_path) = @_;
+    my $src = "/dev/disk/by-path/ip-$host:3260-iscsi-" . to_iqn($host, $ident) . "-lun-0";
+    return $src unless $resolve_path;
+    my $dest = readlink $src
+        or die "readlink failed:$src:$!";
+    $dest = realpath(dirname($src) . "/$dest")
+        if $dest !~ m{^/};
+    $dest;
 }
 
 sub _parse_node {
