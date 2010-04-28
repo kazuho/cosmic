@@ -70,13 +70,18 @@ sub destroy {
 
 sub connect {
     my $klass = shift;
+    my $do_create;
+    if (@ARGV && $ARGV[0] eq '--initialize') {
+        shift @ARGV;
+        $do_create = 1;
+    }
     die "invalid args, see --help"
         unless @ARGV == 2;
     my ($global_name, $device) = @ARGV;
     validate_global_name($global_name);
     die "specified md array seems to be in use"
         if _get_devices_of_array($device);
-    __PACKAGE__->new($global_name, $device)->_load->_connect;
+    __PACKAGE__->new($global_name, $device)->_load->_connect($do_create);
 }
 
 sub disconnect {
@@ -115,7 +120,8 @@ sub _create {
     $self->_save;
     
     # connect
-    $self->_connect(1);
+    $self->_connect(1)
+        unless $self->device eq '-';
 }
 
 sub _add {

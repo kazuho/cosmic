@@ -31,7 +31,7 @@ cosmic - a fail-safe network RAID
 
 =head1 SYNOPSIS
 
-  # create a new volume
+  # create a new volume and connect
   cosmic create global-name /dev/mdX 10G 10.0.0.1 10.0.0.2
   mkfs -t ext3 /dev/mdX
   mount /dev/mdX /var/mdX
@@ -55,6 +55,15 @@ cosmic - a fail-safe network RAID
 
   # display status of a connected volume (as colon-separated values)
   cosmic status global-name /dev/mdX
+
+
+  # to create a new volume without connecting
+  cosmic create global-name - 10G 10.0.0.1 10.0.0.2
+
+  # to connect to an uninitialized array and to init it
+  cosmic connect --initialize global-name /dev/mdX
+  mkfs t ext3 /dev/mdX
+  mount /dev/mdX /var/mdX
 
 =head1 DESCRIPTION
 
