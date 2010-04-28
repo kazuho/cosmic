@@ -14,8 +14,15 @@ use constant ITADM           => '/usr/sbin/itadm';
 use constant SBDADM          => '/usr/sbin/sbdadm';
 use constant STMFADM         => '/usr/sbin/stmfadm';
 use constant ZFS             => '/usr/sbin/zfs';
-use constant ZFS_BLOCK_SIZE  => $ENV{COSMIC_ZFS_BLOCK_SIZE} || '64K';
-use constant ZFS_CREATE_ARGS => $ENV{COSMIC_ZFS_CREATE_ARGS} || undef;
+
+__PACKAGE__->mk_accessors(qw(zfs_create_args));
+
+sub _apply_config {
+    my ($self, $json) = @_;
+    
+    $self->SUPER::_apply_config($json);
+    $self->zfs_create_args($json->{zfs_create_args} || '');
+}
 
 sub _devices {
     my $self = shift;
@@ -46,8 +53,8 @@ sub _create_device {
     # create volume
     systeml(
         ZFS, 'create',
-        (ZFS_CREATE_ARGS ? split(/\s+/, ZFS_CREATE_ARGS) : ()),
-        '-b', ZFS_BLOCK_SIZE, qw(-V), $size,
+        (split /\s+/, $self->zfs_create_args),
+        qw(-V), $size,
         $self->device_prefix . $global_name,
     ) == 0
         or die "zfs failed:$?";

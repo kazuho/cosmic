@@ -115,7 +115,7 @@ if ($^O eq 'solaris') {
 }
 
 # remove disk
-run_phased('remove test9999', 1);
+run_phased('destroy test9999', 1);
 run_hook('volume_exists', 'test9999', 1);
 
 done_testing;

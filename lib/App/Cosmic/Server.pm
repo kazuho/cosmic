@@ -49,11 +49,7 @@ sub new {
             or die "failed to open file:@{[SERVER_CONF_FILE]}:$!";
         join '', <$fh>;
     });
-    for my $n (qw(device_prefix iqn_host)) {
-        die "`$n' not defined in @{[SERVER_CONF_FILE]}"
-            unless $json->{$n};
-        $self->{$n} = $json->{$n};
-    }
+    $self->_apply_config($json);
     
     $self;
 }
@@ -105,6 +101,16 @@ sub change_credentials {
         unless @ARGV == 3;
     validate_global_name($ARGV[0]);
     $self->_change_credentials(@ARGV);
+}
+
+sub _apply_config {
+    my ($self, $json) = @_;
+    
+    for my $n (qw(device_prefix iqn_host)) {
+        die "`$n' not defined in @{[SERVER_CONF_FILE]}"
+            unless $json->{$n};
+        $self->{$n} = $json->{$n};
+    }
 }
 
 sub _create {
