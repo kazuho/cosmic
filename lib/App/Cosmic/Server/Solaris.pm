@@ -68,6 +68,14 @@ sub _create_device {
         SBDADM, 'create-lu', $self->_device_path_from_global_name($global_name),
     ) == 0
         or die "sbdadm failed:$?";
+    # set write-cache-disable (not necessary on older versions, i.e. 2009-06)
+    if (_os_version() >= 134) {
+        systeml(
+            STMFADM, qw(modify-lu -p wcd=true),
+            $self->_guid_from_global_name($global_name),
+        ) == 0
+            or die "stmfadm failed:$?";
+    }
     # add view
     systeml(
         STMFADM, qw(add-view --host-group), "cosmic/$global_name",
@@ -259,6 +267,17 @@ sub _device_path_from_global_name {
 sub _itor_file_of {
     my ($self, $global_name) = @_;
     SERVER_CONF_DIR . "/$global_name.itor";
+}
+
+sub _os_version {
+    my $version = do {
+        open my $fh, '-|', '/usr/bin/uname -v'
+            or die "failed to invoke uname:$!";
+        scalar <$fh>;
+    };
+    $version =~ s/^snv_(\d+).*$/$1/
+        or die "unexpected version format:$version";
+    $version;
 }
 
 1;
