@@ -1,5 +1,8 @@
 Revision history for App::Cosmic.
 
+0.01_03
+	- set wcd=true on OpenSolaris snv>=134
+
 0.01_02
 	- add "create but not init raid array" mode ("create - 1G nodes1 node2")
 	- add "connect and init array" mode ("connect --initialize ...")
