@@ -7,7 +7,7 @@ use Pod::Usage;
 
 use App::Cosmic::Client;
 
-our $VERSION = '0.01_04';
+our $VERSION = '0.01_05';
 
 pod2usage(1)
     unless @ARGV;
