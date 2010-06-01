@@ -1,5 +1,8 @@
 Revision history for App::Cosmic.
 
+0.01_04
+	- require JSON >= 2.00 (or bundle_deps seems to fail)
+
 0.01_03
 	- set wcd=true on OpenSolaris snv>=134
 

@@ -5,7 +5,7 @@ all_from 'cosmic';
 license 'bsd';
 readme_from 'cosmic';
 
-requires 'JSON';
+requires 'JSON' => 2.00;
 
 install_script 'cosmic';
 install_script 'cosmic-server';
