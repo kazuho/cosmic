@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More;
+use Test::More tests => 5;
 
 use_ok('App::Cosmic::Client');
 use_ok('App::Cosmic::Server::Linux');
@@ -70,5 +70,3 @@ EOT
     },
     'parse mdadm --detail (with remove)',
 );
-
-done_testing;
