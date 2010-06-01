@@ -108,7 +108,7 @@ sub to_iqn {
 sub validate_global_name {
     my $name = shift;
     die "invalid character in name:$name"
-        if $name =~ /[^A-Za-z0-9_]/;
+        if $name =~ /[^A-Za-z0-9_\-]/;
 }
 
 1;
