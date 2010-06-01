@@ -15,8 +15,8 @@ use App::Cosmic;
 use base qw(App::Cosmic);
 
 use constant DISK_DIR            => CLIENT_CONF_DIR . '/disks';
-use constant ISCSID_CONF_FILE    => '/etc/iscsi/iscsid.conf';
-use constant ISCSID_ITOR_FILE    => '/etc/iscsi/initiatorname.iscsi';
+use constant ISCSID_CONF_FILE    => $ENV{COSMIC_ISCSID_CONF_FILE} || '/etc/iscsi/iscsid.conf';
+use constant ISCSID_ITOR_FILE    => $ENV{COSMIC_ISCSID_ITOR_FILE} || '/etc/iscsi/initiatorname.iscsi';
 use constant ISCSI_MOUNT_TIMEOUT => 60;
 
 __PACKAGE__->mk_accessors(qw(def global_name device));
