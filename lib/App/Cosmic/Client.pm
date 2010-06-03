@@ -331,12 +331,21 @@ sub _mount {
     for my $node (map {
         _parse_node($_)->{host}
     } sort @$nodes) {
-        # mount iscsi target
+        # mount iscsi target by doing:
+        # step 1) sendtargets
+        # step 2) logout (just in case, don't check errors)
+        # step 3) login
         systeml(
             qw(iscsiadm --mode=discovery --type=sendtargets),
             "--portal=$node",
         ) == 0
             or die "iscsiadm failed:$?";
+        systeml(
+            qw(iscsiadm --mode=node),
+            "--portal=$node",
+            '--target=' . to_iqn($node, $self->global_name),
+            '--logout',
+        );
         systeml(
             qw(iscsiadm --mode=node),
             "--portal=$node",
